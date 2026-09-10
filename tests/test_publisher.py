@@ -85,13 +85,13 @@ async def test_ci_publisher_fails_before_network_without_required_secret() -> No
         )
 
 
-def test_github_workflow_has_schedule_manual_run_and_four_secrets() -> None:
+def test_github_workflow_has_manual_run_and_four_secrets() -> None:
     workflow = (
         Path(__file__).parents[1] / ".github" / "workflows" / "publish-schedule.yml"
     ).read_text(encoding="utf-8")
 
     assert "workflow_dispatch:" in workflow
-    assert 'cron: "30 17 * * *"' in workflow
+    assert "schedule:" not in workflow
     for name in (
         "TELEGRAM_BOT_TOKEN",
         "TARGET_CHAT_ID",

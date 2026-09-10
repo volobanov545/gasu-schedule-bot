@@ -2,9 +2,6 @@ name: Publish tomorrow's schedule
 
 on:
   workflow_dispatch:
-  schedule:
-    # 17:30 UTC is 20:30 Moscow time (Moscow stays at UTC+3).
-    - cron: "30 17 * * *"
 
 permissions:
   contents: read
