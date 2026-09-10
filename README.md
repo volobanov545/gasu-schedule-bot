@@ -5,10 +5,10 @@ SPbGASU schedule for one configured group and publishes evening cards and schedu
 to one configured Telegram topic. It does not receive chat updates or process students'
 messages, files, reactions, or Telegram user IDs in the default `schedule_only` profile.
 
-The selected deployment is GitHub Actions, not a VPS or an always-on home computer.
-The publishing workflow fetches tomorrow's schedule, sends one static card, and exits.
-Its automatic schedule is temporarily paused because a real GitHub-hosted run confirmed
-that `rasp.spbgasu.ru` is unreachable from that runner. Setup and bridge status are in
+The selected deployment is a two-CI bridge, not a VPS or an always-on home computer.
+A Russian GitVerse runner fetches and renders the public schedule, then dispatches only
+the prepared card to a narrow GitHub Actions receiver. GitHub holds the Telegram token
+and sends the card. Setup and bridge status are in
 [docs/GITHUB_ACTIONS_RU.md](docs/GITHUB_ACTIONS_RU.md).
 
 The runnable modular monolith, durable storage, schedule/attendance/archive flows, and

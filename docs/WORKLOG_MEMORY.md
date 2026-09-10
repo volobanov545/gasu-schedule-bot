@@ -604,3 +604,28 @@ VPS и постоянно включённого ПК — CI-мост: GitVerse 
 аутентифицированный dispatch; GitHub отправляет её в Telegram. Реализация моста требует
 явного решения владельца и доступа к его GitVerse-аккаунту. Официальная документация
 GitVerse подтверждает поддержку schedule trigger, секретов и связи с GitHub из CI.
+
+## 22. Реализован двухконтурный CI-мост — 11.09.2026
+
+После явного решения владельца реализована связка GitVerse → GitHub Actions. Новый
+GitVerse workflow `.gitverse/workflows/fetch-schedule.yml` запускается вручную и каждый
+день в 17:30 UTC. Российский runner получает расписание группы `3-СУЗСс-3`, удаляет ФИО
+преподавателей и формирует окончательную Telegram-карточку. Команда
+`szs-hub dispatch-tomorrow` кодирует её в Base64 и вызывает только receiver workflow
+в приватном GitHub-репозитории.
+
+Новый GitHub workflow `.github/workflows/receive-schedule.yml` принимает карточку через
+два явных workflow input, устанавливает проект и запускает `szs-hub publish-dispatched`.
+Перед отправкой проверяются точное совпадение группы, формат карточки «Завтра», ссылка
+только на `https://rasp.spbgasu.ru/`, корректность Base64/UTF-8 и лимит Telegram 4096
+символов. Произвольная группа или произвольный текст отвергаются.
+
+Токен Telegram остаётся только в GitHub. В GitVerse понадобится отдельный fine-grained
+GitHub token, ограниченный репозиторием `gasu-schedule-bot` и разрешением Actions write;
+этого достаточно для официального workflow-dispatch endpoint и не даёт мосту читать
+Telegram secret. В коде, документации и логах значения секретов отсутствуют.
+
+Добавлены модульные тесты обеих сторон, проверки отсутствия Telegram token в GitVerse
+workflow и двух новых CLI-команд. После реализации: **259 passed in 10.09s**, Ruff и
+mypy успешно. До создания GitVerse-репозитория и bridge token внешний end-to-end тест
+ещё не выполнен.

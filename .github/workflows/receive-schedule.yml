@@ -1,0 +1,51 @@
+name: Send schedule received from GitVerse
+
+on:
+  workflow_dispatch:
+    inputs:
+      text_b64:
+        description: Prepared schedule card encoded as Base64
+        required: true
+        type: string
+      group:
+        description: SPbGASU group identifier
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: szs-schedule-receiver
+  cancel-in-progress: false
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TARGET_CHAT_ID: ${{ secrets.TARGET_CHAT_ID }}
+      SCHEDULE_TOPIC_ID: ${{ secrets.SCHEDULE_TOPIC_ID }}
+      SPBGASU_GROUP_ID: ${{ secrets.SPBGASU_GROUP_ID }}
+      SCHEDULE_TEXT_B64: ${{ inputs.text_b64 }}
+      SCHEDULE_GROUP: ${{ inputs.group }}
+      FEATURE_PROFILE: schedule_only
+      TELEGRAM_MODE: outbound_only
+      AI_KILL_SWITCH: "true"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install schedule receiver
+        run: python -m pip install .
+
+      - name: Send prepared schedule card
+        run: szs-hub publish-dispatched

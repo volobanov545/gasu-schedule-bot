@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import hmac
 import json
+import os
 import sqlite3
 import sys
 from collections.abc import Sequence
@@ -71,6 +72,14 @@ def build_parser() -> argparse.ArgumentParser:
     subcommands.add_parser(
         "publish-tomorrow",
         help="однократно отправить завтрашнее расписание (для GitHub Actions)",
+    )
+    subcommands.add_parser(
+        "dispatch-tomorrow",
+        help="получить расписание в GitVerse и передать карточку в GitHub",
+    )
+    subcommands.add_parser(
+        "publish-dispatched",
+        help="отправить в Telegram проверенную карточку от GitVerse",
     )
 
     alert = subcommands.add_parser(
@@ -157,6 +166,38 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"Расписание не отправлено: {type(exc).__name__}: {exc}", file=sys.stderr)
             return 1
         print(f"Расписание отправлено, Telegram message_id={message_id}.")
+        return 0
+    if args.command == "dispatch-tomorrow":
+        from szs_hub.publisher import dispatch_tomorrow
+
+        try:
+            asyncio.run(
+                dispatch_tomorrow(
+                    settings,
+                    github_token=os.environ.get("BRIDGE_GH_TOKEN", ""),
+                    github_repository=os.environ.get("BRIDGE_GH_REPOSITORY", ""),
+                )
+            )
+        except Exception as exc:
+            print(f"Карточка не передана: {type(exc).__name__}: {exc}", file=sys.stderr)
+            return 1
+        print("Карточка передана в GitHub.")
+        return 0
+    if args.command == "publish-dispatched":
+        from szs_hub.publisher import publish_dispatched
+
+        try:
+            message_id = asyncio.run(
+                publish_dispatched(
+                    settings,
+                    text_b64=os.environ.get("SCHEDULE_TEXT_B64", ""),
+                    group_key=os.environ.get("SCHEDULE_GROUP", ""),
+                )
+            )
+        except Exception as exc:
+            print(f"Карточка не отправлена: {type(exc).__name__}: {exc}", file=sys.stderr)
+            return 1
+        print(f"Карточка отправлена, Telegram message_id={message_id}.")
         return 0
     if args.command == "backup":
         output = args.output or _default_backup_path()

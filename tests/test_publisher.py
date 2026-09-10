@@ -7,7 +7,13 @@ import pytest
 from pydantic import SecretStr
 
 from szs_hub.config import Settings
-from szs_hub.publisher import publish_tomorrow
+from szs_hub.publisher import (
+    decode_schedule_card,
+    dispatch_tomorrow,
+    encode_schedule_card,
+    publish_dispatched,
+    publish_tomorrow,
+)
 from szs_hub.schedule.spbgasu import (
     SchedulePageBootstrap,
     WeeklyLesson,
@@ -48,6 +54,21 @@ class FakeDestination:
         return 77
 
 
+class FakeBridge:
+    def __init__(self) -> None:
+        self.dispatched: tuple[str, str, str, str] | None = None
+
+    async def dispatch(
+        self,
+        *,
+        repository: str,
+        token: str,
+        text_b64: str,
+        group_key: str,
+    ) -> None:
+        self.dispatched = (repository, token, text_b64, group_key)
+
+
 @pytest.mark.asyncio
 async def test_ci_publisher_sends_minimal_tomorrow_card_without_teacher() -> None:
     destination = FakeDestination()
@@ -85,6 +106,66 @@ async def test_ci_publisher_fails_before_network_without_required_secret() -> No
         )
 
 
+@pytest.mark.asyncio
+async def test_gitverse_bridge_dispatches_card_without_telegram_secret() -> None:
+    bridge = FakeBridge()
+    settings = Settings(spbgasu_group_id="СЗС-3", _env_file=None)
+
+    await dispatch_tomorrow(
+        settings,
+        github_token="fixture-value",  # noqa: S106
+        github_repository="owner/repository",
+        source=FakeSource(),
+        bridge=bridge,
+        clock=lambda: datetime(2026, 8, 30, 12, tzinfo=UTC),
+    )
+
+    assert bridge.dispatched is not None
+    repository, token, text_b64, group_key = bridge.dispatched
+    assert (repository, token, group_key) == (
+        "owner/repository",
+        "fixture-value",
+        "СЗС-3",
+    )
+    text = decode_schedule_card(text_b64)
+    assert "Геодезия" in text
+    assert "Иванов" not in text
+
+
+@pytest.mark.asyncio
+async def test_github_receiver_validates_group_and_sends_card() -> None:
+    destination = FakeDestination()
+    settings = Settings(
+        telegram_bot_token=SecretStr("123456:token"),
+        target_chat_id=-1001,
+        schedule_topic_id=42,
+        spbgasu_group_id="СЗС-3",
+        _env_file=None,
+    )
+    text = (
+        "📅 <b>Завтра</b> · понедельник, 31 августа\n\nПар нет.\n\n"
+        '<a href="https://rasp.spbgasu.ru/">Источник: СПбГАСУ</a>'
+    )
+
+    message_id = await publish_dispatched(
+        settings,
+        text_b64=encode_schedule_card(text),
+        group_key="сзс-3",
+        destination=destination,
+    )
+
+    assert message_id == 77
+    assert destination.sent == (-1001, 42, text)
+
+    with pytest.raises(ValueError, match="does not match"):
+        await publish_dispatched(
+            settings,
+            text_b64=encode_schedule_card(text),
+            group_key="ДРУГАЯ-ГРУППА",
+            destination=destination,
+        )
+
+
 def test_github_workflow_has_manual_run_and_four_secrets() -> None:
     workflow = (
         Path(__file__).parents[1] / ".github" / "workflows" / "publish-schedule.yml"
@@ -100,3 +181,21 @@ def test_github_workflow_has_manual_run_and_four_secrets() -> None:
     ):
         assert f"secrets.{name}" in workflow
     assert "szs-hub publish-tomorrow" in workflow
+
+
+def test_ci_bridge_workflows_keep_telegram_token_out_of_gitverse() -> None:
+    root = Path(__file__).parents[1]
+    gitverse = (root / ".gitverse/workflows/fetch-schedule.yml").read_text(
+        encoding="utf-8"
+    )
+    receiver = (root / ".github/workflows/receive-schedule.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'cron: "30 17 * * *"' in gitverse
+    assert "secrets.BRIDGE_GH_TOKEN" in gitverse
+    assert "szs-hub dispatch-tomorrow" in gitverse
+    assert "TELEGRAM_BOT_TOKEN" not in gitverse
+    assert "inputs.text_b64" in receiver
+    assert "secrets.TELEGRAM_BOT_TOKEN" in receiver
+    assert "szs-hub publish-dispatched" in receiver

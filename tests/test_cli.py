@@ -29,6 +29,8 @@ def test_parser_exposes_owner_operations() -> None:
         "health",
         "run",
         "publish-tomorrow",
+        "dispatch-tomorrow",
+        "publish-dispatched",
         "alert",
         "backup",
         "restore",

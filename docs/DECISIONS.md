@@ -179,3 +179,21 @@ attendance, materials, or AI.
 **Tradeoff.** Manual reruns can duplicate a card, scheduled jobs may start several minutes
 late, and GitHub may disable schedules after prolonged repository inactivity. If schedule
 change detection or strict delivery timing becomes necessary, revisit persistent hosting.
+
+## D-012 — Split source access and Telegram delivery across two CI providers
+
+**Problem.** The real GitHub-hosted run cannot connect to `rasp.spbgasu.ru`, while a
+Russian runner cannot be assumed to reach Telegram reliably. One provider cannot cover
+both network edges without a VPS or an always-on computer.
+
+**Decision.** GitVerse runs the public schedule fetch at 17:30 UTC, removes teacher names,
+renders the final card, and calls one GitHub receiver workflow. GitHub validates the
+expected group, Base64 payload shape, source link, and Telegram size limit before sending.
+The Telegram token exists only in GitHub. GitVerse receives a fine-grained GitHub token
+limited to the one repository and Actions write permission; it cannot read the bot token.
+
+**Why.** The bridge keeps the deployment stateless and avoids paid infrastructure while
+placing each network call on the CI provider that can reach it.
+
+**Tradeoff.** Two provider accounts and one narrowly scoped bridge token are required.
+Delivery depends on both CI services, and a manual rerun can still create a duplicate.

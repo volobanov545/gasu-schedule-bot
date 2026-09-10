@@ -1,0 +1,37 @@
+name: Fetch SPbGASU schedule and hand off to GitHub
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 17:30 UTC is 20:30 Moscow time.
+    - cron: "30 17 * * *"
+
+jobs:
+  fetch:
+    runs-on: ubuntu-cloud-runner
+    timeout-minutes: 5
+    env:
+      SPBGASU_GROUP_ID: 3-СУЗСс-3
+      SPBGASU_BASE_URL: https://rasp.spbgasu.ru
+      TIMEZONE: Europe/Moscow
+      BRIDGE_GH_REPOSITORY: volobanov545/gasu-schedule-bot
+      BRIDGE_GH_TOKEN: ${{ secrets.BRIDGE_GH_TOKEN }}
+      FEATURE_PROFILE: schedule_only
+      TELEGRAM_MODE: outbound_only
+      AI_KILL_SWITCH: "true"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install schedule bridge
+        run: python -m pip install .
+
+      - name: Fetch and hand off tomorrow's schedule
+        run: szs-hub dispatch-tomorrow

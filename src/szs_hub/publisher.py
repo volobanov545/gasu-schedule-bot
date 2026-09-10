@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
+import re
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime, timedelta, tzinfo
@@ -9,6 +12,7 @@ from datetime import timezone as fixed_timezone
 from typing import Protocol
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import httpx
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -36,6 +40,17 @@ class ScheduleDestination(Protocol):
     async def send(self, *, chat_id: int, topic_id: int, text: str) -> int: ...
 
 
+class ScheduleBridge(Protocol):
+    async def dispatch(
+        self,
+        *,
+        repository: str,
+        token: str,
+        text_b64: str,
+        group_key: str,
+    ) -> None: ...
+
+
 class AiogramScheduleDestination:
     """Small outbound-only adapter around the Telegram Bot API."""
 
@@ -49,6 +64,45 @@ class AiogramScheduleDestination:
             text=text,
         )
         return message.message_id
+
+
+class GitHubWorkflowBridge:
+    """Send one prepared card to the narrow GitHub receiver workflow."""
+
+    def __init__(self, client: httpx.AsyncClient | None = None) -> None:
+        self._client = client or httpx.AsyncClient(timeout=20.0)
+        self._owns_client = client is None
+
+    async def dispatch(
+        self,
+        *,
+        repository: str,
+        token: str,
+        text_b64: str,
+        group_key: str,
+    ) -> None:
+        response = await self._client.post(
+            f"https://api.github.com/repos/{repository}/actions/workflows/"
+            "receive-schedule.yml/dispatches",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {token}",
+                "X-GitHub-Api-Version": "2026-03-10",
+                "User-Agent": "SZS-Hub/0.1",
+            },
+            json={
+                "ref": "main",
+                "inputs": {"text_b64": text_b64, "group": group_key},
+            },
+        )
+        if response.status_code != 204:
+            raise RuntimeError(
+                f"GitHub receiver dispatch failed (HTTP {response.status_code})"
+            )
+
+    async def aclose(self) -> None:
+        if self._owns_client:
+            await self._client.aclose()
 
 
 async def publish_tomorrow(
@@ -94,6 +148,104 @@ async def publish_tomorrow(
             await bot.session.close()
 
 
+async def dispatch_tomorrow(
+    settings: Settings,
+    *,
+    github_token: str,
+    github_repository: str,
+    source: ScheduleSource | None = None,
+    bridge: ScheduleBridge | None = None,
+    clock: Callable[[], datetime] = utc_now,
+) -> None:
+    """Fetch on a Russian CI runner and dispatch a prepared card to GitHub."""
+
+    group_key = _required_text(settings.spbgasu_group_id, "SPBGASU_GROUP_ID")
+    token = _required_text(github_token, "BRIDGE_GH_TOKEN")
+    repository = _required_repository(github_repository)
+    now = clock()
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("publisher clock must be timezone-aware")
+
+    own_source = source is None
+    own_bridge = bridge is None
+    schedule_source = source or SpbGasuClient(base_url=settings.spbgasu_base_url)
+    schedule_bridge = bridge or GitHubWorkflowBridge()
+    try:
+        text = await build_tomorrow_card(
+            schedule_source,
+            group_key=group_key,
+            now=now,
+            timezone=settings.timezone,
+            source_url=settings.spbgasu_base_url,
+        )
+        await schedule_bridge.dispatch(
+            repository=repository,
+            token=token,
+            text_b64=encode_schedule_card(text),
+            group_key=group_key,
+        )
+    finally:
+        if own_source:
+            await _close_source(schedule_source)
+        if own_bridge:
+            await _close_source(schedule_bridge)
+
+
+async def publish_dispatched(
+    settings: Settings,
+    *,
+    text_b64: str,
+    group_key: str,
+    destination: ScheduleDestination | None = None,
+) -> int:
+    """Validate a GitVerse-produced card and publish it from GitHub."""
+
+    token = _required_secret(settings.telegram_bot_token, "TELEGRAM_BOT_TOKEN")
+    chat_id = _required_int(settings.target_chat_id, "TARGET_CHAT_ID", negative=True)
+    topic_id = _required_int(settings.schedule_topic_id, "SCHEDULE_TOPIC_ID", negative=False)
+    expected_group = _required_text(settings.spbgasu_group_id, "SPBGASU_GROUP_ID")
+    if group_key.strip().casefold() != expected_group.casefold():
+        raise ValueError("bridge payload group does not match SPBGASU_GROUP_ID")
+    text = decode_schedule_card(text_b64)
+
+    own_bot = destination is None
+    bot: Bot | None = None
+    if destination is None:
+        bot = Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+        schedule_destination: ScheduleDestination = AiogramScheduleDestination(bot)
+    else:
+        schedule_destination = destination
+    try:
+        return await schedule_destination.send(chat_id=chat_id, topic_id=topic_id, text=text)
+    finally:
+        if own_bot and bot is not None:
+            await bot.session.close()
+
+
+def encode_schedule_card(text: str) -> str:
+    _validate_schedule_card(text)
+    return base64.b64encode(text.encode("utf-8")).decode("ascii")
+
+
+def decode_schedule_card(value: str) -> str:
+    try:
+        raw = base64.b64decode(value, validate=True)
+        text = raw.decode("utf-8")
+    except (binascii.Error, UnicodeDecodeError) as exc:
+        raise ValueError("invalid bridge schedule payload") from exc
+    _validate_schedule_card(text)
+    return text
+
+
+def _validate_schedule_card(text: str) -> None:
+    if not text.startswith("📅 <b>Завтра</b> · "):
+        raise ValueError("bridge payload is not a tomorrow schedule card")
+    if not text.endswith('<a href="https://rasp.spbgasu.ru/">Источник: СПбГАСУ</a>'):
+        raise ValueError("bridge payload has an unexpected source")
+    if len(text) > 4096:
+        raise ValueError("bridge schedule payload exceeds Telegram limit")
+
+
 async def build_tomorrow_card(
     source: ScheduleSource,
     *,
@@ -128,7 +280,7 @@ async def build_tomorrow_card(
     return f'{card}\n\n<a href="{clean_url}">Источник: СПбГАСУ</a>'
 
 
-async def _close_source(source: ScheduleSource) -> None:
+async def _close_source(source: object) -> None:
     close = getattr(source, "aclose", None)
     if close is not None:
         await close()
@@ -150,6 +302,13 @@ def _required_text(value: str | None, name: str) -> str:
     if value is None or not value.strip():
         raise ValueError(f"missing GitHub Actions secret: {name}")
     return value.strip()
+
+
+def _required_repository(value: str) -> str:
+    repository = _required_text(value, "BRIDGE_GH_REPOSITORY")
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
+        raise ValueError("invalid BRIDGE_GH_REPOSITORY")
+    return repository
 
 
 def _load_timezone(name: str) -> tzinfo:
