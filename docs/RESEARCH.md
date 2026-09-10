@@ -44,6 +44,22 @@ The current [Bot API changelog](https://core.telegram.org/bots/api-changelog) id
 
 - Critical schedule cards use ordinary HTML/entities as the dependable baseline.
 - [Rich Messages](https://core.telegram.org/bots/features#rich-messages) are a progressive enhancement only after Android, iOS, Desktop, Web, and library spikes. A schedule must remain legible on clients without the newest rich primitives.
+- Telegram Bot API 10.3 (24 August 2026) now exposes `sendRichMessage` for forum
+  topics. Rich HTML supports headings, compact/striped tables, details disclosure,
+  footers, and buttons inside the message, with a 32,768-character limit. This is the
+  native “article” presentation the owner referred to; it is not Telegraph and does not
+  make the private timetable public on another page.
+- Message effects are private-chat-only, checklists do not model a timetable, and
+  ephemeral group replies require a specific receiving user/callback and are not a
+  dependable broadcast. Custom emoji additionally depend on the bot owner's Premium
+  status. None of those improve the scheduled group card enough to justify coupling.
+- The CI sender uses Rich HTML first and retries the same essential content through
+  classic `sendMessage` HTML when Telegram returns a Rich Message format/method error.
+  Ordinary Unicode emoji keep the design consistent without a Premium dependency.
+- GitHub `workflow_dispatch` accepts 65,535 characters total, enough for the compact
+  Base64 two-week envelope. GitHub Actions cache removes entries unaccessed for seven
+  days by default; four daily runs continually refresh a tiny state file. A missing or
+  corrupt cache becomes a quiet new baseline rather than a false change alert.
 
 ## SPbGASU schedule discovery
 

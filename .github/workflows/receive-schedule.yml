@@ -30,6 +30,7 @@ jobs:
       SPBGASU_GROUP_ID: ${{ secrets.SPBGASU_GROUP_ID }}
       SCHEDULE_TEXT_B64: ${{ inputs.text_b64 }}
       SCHEDULE_GROUP: ${{ inputs.group }}
+      SCHEDULE_STATE_PATH: .schedule-state/state.json
       FEATURE_PROFILE: schedule_only
       TELEGRAM_MODE: outbound_only
       AI_KILL_SWITCH: "true"
@@ -47,5 +48,19 @@ jobs:
       - name: Install schedule receiver
         run: python -m pip install .
 
-      - name: Send prepared schedule card
+      - name: Restore the latest comparison state
+        uses: actions/cache/restore@v4
+        with:
+          path: .schedule-state
+          key: schedule-state-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            schedule-state-
+
+      - name: Compare and update Telegram when useful
         run: szs-hub publish-dispatched
+
+      - name: Save comparison state
+        uses: actions/cache/save@v4
+        with:
+          path: .schedule-state
+          key: schedule-state-${{ github.run_id }}-${{ github.run_attempt }}

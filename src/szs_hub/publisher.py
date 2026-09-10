@@ -9,6 +9,7 @@ from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime, timedelta, tzinfo
 from datetime import timezone as fixed_timezone
+from pathlib import Path
 from typing import Protocol
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -19,6 +20,22 @@ from aiogram.enums import ParseMode
 from pydantic import SecretStr
 
 from szs_hub.config import Settings
+from szs_hub.domain.schedule import Lesson
+from szs_hub.schedule.ci import (
+    ScheduleDeliveryState,
+    ScheduleEnvelope,
+    changes_are_urgent,
+    decode_schedule_envelope,
+    encode_schedule_envelope,
+    load_delivery_state,
+    overlapping_changes,
+    render_changes_fallback,
+    render_digest_fallback,
+    render_rich_changes,
+    render_rich_digest,
+    save_delivery_state,
+    should_publish_digest,
+)
 from szs_hub.schedule.render import render_day_card
 from szs_hub.schedule.spbgasu import (
     SchedulePageBootstrap,
@@ -38,6 +55,18 @@ class ScheduleSource(Protocol):
 
 class ScheduleDestination(Protocol):
     async def send(self, *, chat_id: int, topic_id: int, text: str) -> int: ...
+
+
+class RichScheduleDestination(ScheduleDestination, Protocol):
+    async def send_rich(
+        self,
+        *,
+        chat_id: int,
+        topic_id: int,
+        rich_html: str,
+        fallback_html: str,
+        silent: bool,
+    ) -> int: ...
 
 
 class ScheduleBridge(Protocol):
@@ -64,6 +93,81 @@ class AiogramScheduleDestination:
             text=text,
         )
         return message.message_id
+
+
+class TelegramBotApiDestination:
+    """Use Bot API 10.3 Rich Messages with a dependable classic fallback."""
+
+    def __init__(self, token: str, client: httpx.AsyncClient | None = None) -> None:
+        self._base_url = f"https://api.telegram.org/bot{token}"
+        self._client = client or httpx.AsyncClient(timeout=20.0)
+        self._owns_client = client is None
+
+    async def send(self, *, chat_id: int, topic_id: int, text: str) -> int:
+        return await self._send_classic(
+            chat_id=chat_id,
+            topic_id=topic_id,
+            text=text,
+            silent=False,
+        )
+
+    async def send_rich(
+        self,
+        *,
+        chat_id: int,
+        topic_id: int,
+        rich_html: str,
+        fallback_html: str,
+        silent: bool,
+    ) -> int:
+        response = await self._client.post(
+            f"{self._base_url}/sendRichMessage",
+            json={
+                "chat_id": chat_id,
+                "message_thread_id": topic_id,
+                "rich_message": {"html": rich_html, "skip_entity_detection": True},
+                "disable_notification": silent,
+            },
+        )
+        result = _telegram_message_id(response)
+        if result is not None:
+            return result
+        if response.status_code != 400:
+            raise _telegram_delivery_error(response)
+        return await self._send_classic(
+            chat_id=chat_id,
+            topic_id=topic_id,
+            text=fallback_html,
+            silent=silent,
+        )
+
+    async def _send_classic(
+        self,
+        *,
+        chat_id: int,
+        topic_id: int,
+        text: str,
+        silent: bool,
+    ) -> int:
+        response = await self._client.post(
+            f"{self._base_url}/sendMessage",
+            json={
+                "chat_id": chat_id,
+                "message_thread_id": topic_id,
+                "text": text,
+                "parse_mode": "HTML",
+                "disable_web_page_preview": True,
+                "disable_notification": silent,
+            },
+        )
+        result = _telegram_message_id(response)
+        if result is None:
+            raise _telegram_delivery_error(response)
+        return result
+
+    async def aclose(self) -> None:
+        if self._owns_client:
+            await self._client.aclose()
 
 
 class GitHubWorkflowBridge:
@@ -153,11 +257,35 @@ async def dispatch_tomorrow(
     *,
     github_token: str,
     github_repository: str,
+    force_digest: bool = False,
     source: ScheduleSource | None = None,
     bridge: ScheduleBridge | None = None,
     clock: Callable[[], datetime] = utc_now,
 ) -> None:
-    """Fetch on a Russian CI runner and dispatch a prepared card to GitHub."""
+    """Backward-compatible name for the two-week CI schedule dispatch."""
+
+    await dispatch_schedule(
+        settings,
+        github_token=github_token,
+        github_repository=github_repository,
+        force_digest=force_digest,
+        source=source,
+        bridge=bridge,
+        clock=clock,
+    )
+
+
+async def dispatch_schedule(
+    settings: Settings,
+    *,
+    github_token: str,
+    github_repository: str,
+    force_digest: bool = False,
+    source: ScheduleSource | None = None,
+    bridge: ScheduleBridge | None = None,
+    clock: Callable[[], datetime] = utc_now,
+) -> None:
+    """Fetch a two-week horizon in Russia and hand it to the GitHub sender."""
 
     group_key = _required_text(settings.spbgasu_group_id, "SPBGASU_GROUP_ID")
     token = _required_text(github_token, "BRIDGE_GH_TOKEN")
@@ -171,17 +299,17 @@ async def dispatch_tomorrow(
     schedule_source = source or SpbGasuClient(base_url=settings.spbgasu_base_url)
     schedule_bridge = bridge or GitHubWorkflowBridge()
     try:
-        text = await build_tomorrow_card(
+        envelope = await build_schedule_envelope(
             schedule_source,
             group_key=group_key,
             now=now,
             timezone=settings.timezone,
-            source_url=settings.spbgasu_base_url,
+            force_digest=force_digest,
         )
         await schedule_bridge.dispatch(
             repository=repository,
             token=token,
-            text_b64=encode_schedule_card(text),
+            text_b64=encode_schedule_envelope(envelope),
             group_key=group_key,
         )
     finally:
@@ -196,9 +324,11 @@ async def publish_dispatched(
     *,
     text_b64: str,
     group_key: str,
-    destination: ScheduleDestination | None = None,
-) -> int:
-    """Validate a GitVerse-produced card and publish it from GitHub."""
+    destination: RichScheduleDestination | None = None,
+    state_path: Path = Path(".schedule-state/state.json"),
+    clock: Callable[[], datetime] = utc_now,
+) -> tuple[int, ...]:
+    """Compare, format and publish a validated GitVerse schedule envelope."""
 
     token = _required_secret(settings.telegram_bot_token, "TELEGRAM_BOT_TOKEN")
     chat_id = _required_int(settings.target_chat_id, "TARGET_CHAT_ID", negative=True)
@@ -206,20 +336,121 @@ async def publish_dispatched(
     expected_group = _required_text(settings.spbgasu_group_id, "SPBGASU_GROUP_ID")
     if group_key.strip().casefold() != expected_group.casefold():
         raise ValueError("bridge payload group does not match SPBGASU_GROUP_ID")
-    text = decode_schedule_card(text_b64)
-
-    own_bot = destination is None
-    bot: Bot | None = None
+    # Keep the receiver compatible while GitHub and GitVerse update independently.
+    legacy_text = _decode_legacy_card(text_b64)
+    own_destination = destination is None
     if destination is None:
-        bot = Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-        schedule_destination: ScheduleDestination = AiogramScheduleDestination(bot)
+        schedule_destination: RichScheduleDestination = TelegramBotApiDestination(token)
     else:
         schedule_destination = destination
     try:
-        return await schedule_destination.send(chat_id=chat_id, topic_id=topic_id, text=text)
+        if legacy_text is not None:
+            return (
+                await schedule_destination.send(
+                    chat_id=chat_id,
+                    topic_id=topic_id,
+                    text=legacy_text,
+                ),
+            )
+
+        envelope = decode_schedule_envelope(text_b64)
+        if envelope.group_key.strip().casefold() != expected_group.casefold():
+            raise ValueError("bridge envelope group does not match SPBGASU_GROUP_ID")
+        now = clock()
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("publisher clock must be timezone-aware")
+        local_now = now.astimezone(_load_timezone(settings.timezone))
+        state = load_delivery_state(state_path)
+        changes = overlapping_changes(state.previous, envelope, today=local_now.date())
+        sent: list[int] = []
+
+        if changes:
+            sent.append(
+                await schedule_destination.send_rich(
+                    chat_id=chat_id,
+                    topic_id=topic_id,
+                    rich_html=render_rich_changes(
+                        changes,
+                        fetched_at=envelope.fetched_at,
+                        source_url=settings.spbgasu_base_url,
+                    ),
+                    fallback_html=render_changes_fallback(
+                        changes,
+                        source_url=settings.spbgasu_base_url,
+                    ),
+                    silent=not changes_are_urgent(changes, today=local_now.date()),
+                )
+            )
+
+        publish_digest = should_publish_digest(state, envelope, local_now=local_now)
+        if publish_digest:
+            sent.append(
+                await schedule_destination.send_rich(
+                    chat_id=chat_id,
+                    topic_id=topic_id,
+                    rich_html=render_rich_digest(
+                        envelope,
+                        local_today=local_now.date(),
+                        source_url=settings.spbgasu_base_url,
+                    ),
+                    fallback_html=render_digest_fallback(
+                        envelope,
+                        local_today=local_now.date(),
+                        source_url=settings.spbgasu_base_url,
+                    ),
+                    silent=False,
+                )
+            )
+
+        save_delivery_state(
+            state_path,
+            ScheduleDeliveryState(
+                previous=envelope,
+                last_digest_date=local_now.date() if publish_digest else state.last_digest_date,
+            ),
+        )
+        return tuple(sent)
     finally:
-        if own_bot and bot is not None:
-            await bot.session.close()
+        if own_destination:
+            await _close_source(schedule_destination)
+
+
+async def build_schedule_envelope(
+    source: ScheduleSource,
+    *,
+    group_key: str,
+    now: datetime,
+    timezone: str,
+    force_digest: bool = False,
+) -> ScheduleEnvelope:
+    zone = _load_timezone(timezone)
+    local_now = now.astimezone(zone)
+    local_today = local_now.date()
+    current_monday = local_today - timedelta(days=local_today.weekday())
+    bootstrap = await source.fetch_bootstrap()
+    weekly = await source.fetch_group(group_key)
+    if weekly.group_key.strip() != group_key.strip():
+        raise ValueError("schedule source returned a different group")
+    lessons: list[Lesson] = []
+    for offset in (0, 1):
+        monday = current_monday + timedelta(days=offset * 7)
+        parity = parity_for_week(
+            current_week_number=bootstrap.current_week_number,
+            current_monday=current_monday,
+            target_monday=monday,
+        )
+        lessons.extend(
+            replace(lesson, teacher=None)
+            for lesson in materialize_week(weekly, monday=monday, parity=parity)
+        )
+    return ScheduleEnvelope(
+        group_key=group_key,
+        fetched_at=local_now,
+        horizon_start=current_monday,
+        horizon_end=current_monday + timedelta(days=13),
+        lessons=tuple(lessons),
+        force_digest=force_digest,
+    )
 
 
 def encode_schedule_card(text: str) -> str:
@@ -284,6 +515,43 @@ async def _close_source(source: object) -> None:
     close = getattr(source, "aclose", None)
     if close is not None:
         await close()
+
+
+def _decode_legacy_card(value: str) -> str | None:
+    try:
+        raw = base64.b64decode(value, validate=True)
+        text = raw.decode("utf-8")
+    except (binascii.Error, UnicodeDecodeError):
+        return None
+    if not text.startswith("📅 <b>Завтра</b> · "):
+        return None
+    _validate_schedule_card(text)
+    return text
+
+
+def _telegram_message_id(response: httpx.Response) -> int | None:
+    try:
+        payload = response.json()
+    except ValueError:
+        return None
+    if not response.is_success or not isinstance(payload, dict) or payload.get("ok") is not True:
+        return None
+    result = payload.get("result")
+    message_id = result.get("message_id") if isinstance(result, dict) else None
+    return message_id if isinstance(message_id, int) and message_id > 0 else None
+
+
+def _telegram_delivery_error(response: httpx.Response) -> RuntimeError:
+    description = "unexpected response"
+    try:
+        payload = response.json()
+        if isinstance(payload, dict) and isinstance(payload.get("description"), str):
+            description = payload["description"][:200]
+    except ValueError:
+        pass
+    return RuntimeError(
+        f"Telegram delivery failed (HTTP {response.status_code}: {description})"
+    )
 
 
 def _required_secret(value: SecretStr | None, name: str) -> str:

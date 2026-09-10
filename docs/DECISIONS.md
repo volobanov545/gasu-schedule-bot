@@ -197,3 +197,34 @@ placing each network call on the CI provider that can reach it.
 
 **Tradeoff.** Two provider accounts and one narrowly scoped bridge token are required.
 Delivery depends on both CI services, and a manual rerun can still create a duplicate.
+
+## D-013 — Rich nightly digest plus four quiet comparisons
+
+**Problem.** A daily plain-text card works, but does not provide a useful week view and
+cannot distinguish a genuine edit from the next week merely entering the source horizon.
+
+**Decision.** GitVerse fetches a dated two-week schedule at 06:50, 12:20, 17:20 and
+20:30 Europe/Moscow. GitHub keeps the last validated envelope in a tiny Actions cache.
+Only dates present in both the old and new horizons are semantically compared. Dates
+newly appearing beyond the previous horizon are publication of the next week, not a
+change. Expired past dates are ignored.
+
+At the evening run the bot sends one Bot API 10.3 Rich Message: tomorrow is immediately
+visible as a compact table, while the following seven days live in a native expandable
+details block. Actual changes are separate minimal diffs; today/tomorrow changes notify
+normally and later changes are silent. Identical snapshots produce no message. A classic
+HTML fallback preserves the essential tomorrow card if Rich Messages are rejected.
+
+**Why.** Four checks cover overnight, midday, end-of-office-day and evening changes for
+roughly 120 short source jobs per month. Users receive one predictable preparation card,
+not four status messages. The overlap rule prevents a rolling two-week window from
+manufacturing “added lessons” every Monday.
+
+**Tradeoff.** GitHub cache is small operational state, not an audit database. If it is
+evicted, the next run safely establishes a new baseline and therefore may miss one change;
+it will not generate a false alarm. A future VPS/database release can preserve full
+snapshot history without changing the user-facing rules.
+
+GitVerse's workflow checks out the private GitHub `main` explicitly through the existing
+fine-grained bridge token (Contents read-only). GitHub is therefore the single code source;
+future fixes do not need to be copied through the GitVerse web editor file by file.

@@ -73,9 +73,14 @@ def build_parser() -> argparse.ArgumentParser:
         "publish-tomorrow",
         help="однократно отправить завтрашнее расписание (для GitHub Actions)",
     )
-    subcommands.add_parser(
+    dispatch = subcommands.add_parser(
         "dispatch-tomorrow",
-        help="получить расписание в GitVerse и передать карточку в GitHub",
+        help="получить две недели расписания в GitVerse и передать в GitHub",
+    )
+    dispatch.add_argument(
+        "--force-digest",
+        action="store_true",
+        help="отправить вечернюю карточку вне обычного времени для проверки вида",
     )
     subcommands.add_parser(
         "publish-dispatched",
@@ -176,6 +181,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     settings,
                     github_token=os.environ.get("BRIDGE_GH_TOKEN", ""),
                     github_repository=os.environ.get("BRIDGE_GH_REPOSITORY", ""),
+                    force_digest=bool(args.force_digest),
                 )
             )
         except Exception as exc:
@@ -187,17 +193,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         from szs_hub.publisher import publish_dispatched
 
         try:
-            message_id = asyncio.run(
+            message_ids = asyncio.run(
                 publish_dispatched(
                     settings,
                     text_b64=os.environ.get("SCHEDULE_TEXT_B64", ""),
                     group_key=os.environ.get("SCHEDULE_GROUP", ""),
+                    state_path=Path(
+                        os.environ.get(
+                            "SCHEDULE_STATE_PATH", ".schedule-state/state.json"
+                        )
+                    ),
                 )
             )
         except Exception as exc:
             print(f"Карточка не отправлена: {type(exc).__name__}: {exc}", file=sys.stderr)
             return 1
-        print(f"Карточка отправлена, Telegram message_id={message_id}.")
+        if message_ids:
+            ids = ", ".join(str(item) for item in message_ids)
+            print(f"Telegram обновлён, message_id={ids}.")
+        else:
+            print("Расписание проверено: изменений нет, Telegram не беспокоим.")
         return 0
     if args.command == "backup":
         output = args.output or _default_backup_path()
