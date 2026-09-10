@@ -310,8 +310,6 @@ def parse_weekly_schedule(payload: object, *, group_key: str) -> WeeklySchedule:
                             occurrence=occurrence,
                         )
                     )
-    if not lessons:
-        raise SpbGasuProtocolError("SPbGASU schedule contains no lessons")
     return WeeklySchedule(group_key, tuple(lessons))
 
 

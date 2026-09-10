@@ -54,6 +54,14 @@ class FakeDestination:
         return 77
 
 
+class EmptySource:
+    async def fetch_bootstrap(self) -> SchedulePageBootstrap:
+        return SchedulePageBootstrap(current_week_number=5, groups=("СЗС-3",))
+
+    async def fetch_group(self, group_key: str) -> WeeklySchedule:
+        return WeeklySchedule(group_key=group_key, lessons=())
+
+
 class FakeBridge:
     def __init__(self) -> None:
         self.dispatched: tuple[str, str, str, str] | None = None
@@ -130,6 +138,26 @@ async def test_gitverse_bridge_dispatches_card_without_telegram_secret() -> None
     text = decode_schedule_card(text_b64)
     assert "Геодезия" in text
     assert "Иванов" not in text
+
+
+@pytest.mark.asyncio
+async def test_gitverse_bridge_dispatches_empty_day_card() -> None:
+    bridge = FakeBridge()
+    settings = Settings(spbgasu_group_id="СЗС-3", _env_file=None)
+
+    await dispatch_tomorrow(
+        settings,
+        github_token="fixture-value",  # noqa: S106
+        github_repository="owner/repository",
+        source=EmptySource(),
+        bridge=bridge,
+        clock=lambda: datetime(2026, 9, 11, 12, tzinfo=UTC),
+    )
+
+    assert bridge.dispatched is not None
+    text = decode_schedule_card(bridge.dispatched[2])
+    assert "суббота, 12 сентября" in text
+    assert "Пар нет." in text
 
 
 @pytest.mark.asyncio

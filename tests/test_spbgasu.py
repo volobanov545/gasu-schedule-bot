@@ -50,6 +50,13 @@ def test_response_wrapper_and_root_shape_are_supported() -> None:
     assert len(wrapped.lessons) == 2
 
 
+def test_empty_week_is_a_valid_schedule() -> None:
+    schedule = parse_weekly_schedule({"R": {}}, group_key="СЗС-3")
+
+    assert schedule.group_key == "СЗС-3"
+    assert schedule.lessons == ()
+
+
 def test_week_materialization_uses_official_bell_slots() -> None:
     schedule = parse_weekly_schedule(payload(), group_key="СЗС-3")
     lessons = materialize_week(
