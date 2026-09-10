@@ -21,6 +21,13 @@ class _FcntlModule(Protocol):
     def flock(self, file_descriptor: int, operation: int) -> None: ...
 
 
+class _MsvcrtModule(Protocol):
+    LK_NBLCK: int
+    LK_UNLCK: int
+
+    def locking(self, file_descriptor: int, mode: int, number_of_bytes: int) -> None: ...
+
+
 class ProcessLock:
     """Hold an operating-system lock; a stale lock file is harmless after a crash."""
 
@@ -79,8 +86,7 @@ def database_lock_path(database_path: Path) -> Path:
 
 def _lock_nonblocking(stream: BinaryIO) -> None:
     if os.name == "nt":
-        import msvcrt
-
+        msvcrt = cast(_MsvcrtModule, import_module("msvcrt"))
         msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
         return
     fcntl = cast(_FcntlModule, import_module("fcntl"))
@@ -90,8 +96,7 @@ def _lock_nonblocking(stream: BinaryIO) -> None:
 def _unlock(stream: BinaryIO) -> None:
     stream.seek(0)
     if os.name == "nt":
-        import msvcrt
-
+        msvcrt = cast(_MsvcrtModule, import_module("msvcrt"))
         msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
         return
     fcntl = cast(_FcntlModule, import_module("fcntl"))
