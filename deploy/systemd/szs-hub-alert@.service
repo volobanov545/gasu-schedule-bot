@@ -1,0 +1,46 @@
+[Unit]
+Description=Notify the SZS Hub owner about a critical failure (%i)
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=6h
+StartLimitBurst=24
+
+[Service]
+Type=oneshot
+User=szshub
+Group=szshub-state
+WorkingDirectory=/opt/szs-hub/current
+EnvironmentFile=/etc/szs-hub/runtime.env
+ExecStart=/opt/szs-hub/current/.venv/bin/szs-hub alert --code %i
+Restart=on-failure
+RestartSec=15min
+TimeoutStartSec=30s
+UMask=0077
+StateDirectory=szs-hub-alert
+StateDirectoryMode=0700
+ReadWritePaths=/var/lib/szs-hub-alert
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+TasksMax=32
+LimitNOFILE=512
+MemoryMax=256M

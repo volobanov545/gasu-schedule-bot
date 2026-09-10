@@ -1,0 +1,45 @@
+name: Publish tomorrow's schedule
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 17:30 UTC is 20:30 Moscow time (Moscow stays at UTC+3).
+    - cron: "30 17 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: szs-schedule-publisher
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TARGET_CHAT_ID: ${{ secrets.TARGET_CHAT_ID }}
+      SCHEDULE_TOPIC_ID: ${{ secrets.SCHEDULE_TOPIC_ID }}
+      SPBGASU_GROUP_ID: ${{ secrets.SPBGASU_GROUP_ID }}
+      SPBGASU_BASE_URL: https://rasp.spbgasu.ru
+      TIMEZONE: Europe/Moscow
+      FEATURE_PROFILE: schedule_only
+      TELEGRAM_MODE: outbound_only
+      AI_KILL_SWITCH: "true"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install schedule publisher
+        run: python -m pip install .
+
+      - name: Publish tomorrow's schedule
+        run: szs-hub publish-tomorrow

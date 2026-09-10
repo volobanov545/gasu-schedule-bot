@@ -1,0 +1,69 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "szs-hub"
+version = "0.1.0"
+description = "A quiet, Telegram-native group assistant for SPbGASU SZS students"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Proprietary" }
+dependencies = [
+  "aiogram>=3.22,<4",
+  "aiosqlite>=0.21,<1",
+  "alembic>=1.16,<2",
+  "fastapi>=0.116,<1",
+  "httpx>=0.28,<1",
+  "pydantic>=2.11,<3",
+  "pydantic-settings>=2.10,<3",
+  "snowballstemmer>=2.2,<4",
+  "sqlalchemy[asyncio]>=2.0.41,<3",
+  "tzdata>=2025.2; platform_system == 'Windows'",
+  "uvicorn>=0.35,<1",
+]
+
+[project.optional-dependencies]
+documents = [
+  "openpyxl>=3.1,<4",
+  "pillow>=11,<13",
+  "pypdf>=5,<7",
+  "python-docx>=1.2,<2",
+  "python-pptx>=1.0,<2",
+  "pytesseract>=0.3.13,<1",
+]
+dev = [
+  "mypy>=1.17,<2",
+  "pytest>=8.4,<10",
+  "pytest-asyncio>=1.1,<2",
+  "pytest-cov>=6.2,<8",
+  "ruff>=0.12,<1",
+]
+
+[project.scripts]
+szs-hub = "szs_hub.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/szs_hub"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-markers --strict-config"
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["szs_hub"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC", "S"]
+ignore = ["S101"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["szs_hub"]

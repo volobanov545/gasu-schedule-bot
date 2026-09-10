@@ -1,0 +1,12 @@
+[Unit]
+Description=Create the daily SZS Hub off-host backup
+
+[Timer]
+OnCalendar=*-*-* 03:15:00 Europe/Moscow
+RandomizedDelaySec=15min
+AccuracySec=1min
+Persistent=yes
+Unit=szs-hub-backup.service
+
+[Install]
+WantedBy=timers.target
