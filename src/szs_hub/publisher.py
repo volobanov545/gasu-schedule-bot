@@ -95,7 +95,7 @@ class GitHubWorkflowBridge:
                 "inputs": {"text_b64": text_b64, "group": group_key},
             },
         )
-        if response.status_code != 204:
+        if not response.is_success:
             raise RuntimeError(
                 f"GitHub receiver dispatch failed (HTTP {response.status_code})"
             )

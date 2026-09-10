@@ -3,11 +3,13 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
+import httpx
 import pytest
 from pydantic import SecretStr
 
 from szs_hub.config import Settings
 from szs_hub.publisher import (
+    GitHubWorkflowBridge,
     decode_schedule_card,
     dispatch_tomorrow,
     encode_schedule_card,
@@ -75,6 +77,23 @@ class FakeBridge:
         group_key: str,
     ) -> None:
         self.dispatched = (repository, token, text_b64, group_key)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status_code", [200, 204])
+async def test_github_bridge_accepts_successful_dispatch(status_code: int) -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/receive-schedule.yml/dispatches")
+        return httpx.Response(status_code)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        bridge = GitHubWorkflowBridge(client)
+        await bridge.dispatch(
+            repository="owner/repository",
+            token="fixture-value",  # noqa: S106
+            text_b64="ZmFrZQ==",
+            group_key="СЗС-3",
+        )
 
 
 @pytest.mark.asyncio
