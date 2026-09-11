@@ -163,6 +163,23 @@ async def test_unknown_group_is_explicit() -> None:
 
 
 @pytest.mark.asyncio
+async def test_client_rejects_empty_template_with_key_only_diagnostics() -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"R": {"Понедельник": {}}, "PRIVATE_VALUE": "hidden"},
+        )
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    client = SpbGasuClient(client=http, cache_seconds=300)
+
+    with pytest.raises(SpbGasuProtocolError, match='"Понедельник": 1') as error:
+        await client.fetch_group("СЗС-3")
+    assert "hidden" not in str(error.value)
+    await http.aclose()
+
+
+@pytest.mark.asyncio
 async def test_oversized_or_malformed_response_fails_closed() -> None:
     async def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, content=b"x" * 101)

@@ -141,6 +141,11 @@ class SpbGasuClient:
                 return cached[1]
             payload = await self._request_group(cleaned)
             schedule = parse_weekly_schedule(payload, group_key=cleaned)
+            if not schedule.lessons:
+                raise SpbGasuProtocolError(
+                    "SPbGASU weekly template parsed as empty; key schema="
+                    f"{_payload_key_schema(payload)}"
+                )
             self._cache[cleaned] = (self._clock(), schedule)
             return schedule
 
@@ -381,6 +386,25 @@ def _mapping(value: object, label: str) -> Mapping[str, Any]:
     if not isinstance(value, Mapping):
         raise SpbGasuProtocolError(f"{label} is not an object")
     return value
+
+
+def _payload_key_schema(value: object) -> str:
+    """Return key counts only, so parser drift is debuggable without logging values."""
+
+    counts: dict[str, int] = {}
+    pending = [value]
+    visited = 0
+    while pending and visited < 10_000:
+        item = pending.pop()
+        visited += 1
+        if isinstance(item, Mapping):
+            for key, child in item.items():
+                label = str(key)[:100]
+                counts[label] = counts.get(label, 0) + 1
+                pending.append(child)
+        elif isinstance(item, list):
+            pending.extend(item[:1_000])
+    return json.dumps(dict(sorted(counts.items())), ensure_ascii=False)[:2_000]
 
 
 def _weekday(value: object) -> int:
