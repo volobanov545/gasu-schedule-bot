@@ -140,12 +140,6 @@ class SpbGasuClient:
             if cached and now - cached[0] < self._cache_seconds:
                 return cached[1]
             payload = await self._request_group(cleaned)
-            raise SpbGasuProtocolError(
-                "temporary SPbGASU shape probe; key schema="
-                f"{_payload_key_schema(payload)}; public dates="
-                f"{_payload_public_dates(payload)}; containers="
-                f"{_payload_container_schema(payload)}"
-            )
             schedule = parse_weekly_schedule(payload, group_key=cleaned)
             if not schedule.lessons:
                 raise SpbGasuProtocolError(
