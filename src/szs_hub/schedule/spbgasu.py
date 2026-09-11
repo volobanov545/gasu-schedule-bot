@@ -205,8 +205,13 @@ class SpbGasuClient:
                 documents.append((urlsplit(url).path, response.text))
 
         snippets = [f"scripts={[source for source, _ in documents[1:]]}"]
+        contract_sources = {
+            "/local/templates/rasp/script.js",
+            "/local/templates/rasp/js/script.js",
+            "/local/templates/rasp/asset/js/main.js",
+        }
         for source, document in documents:
-            if source != "page" and not source.startswith("/local/templates/rasp/"):
+            if source not in contract_sources:
                 continue
             for match in _CONTRACT_SNIPPET.finditer(document):
                 compact = " ".join(match.group(0).split())
