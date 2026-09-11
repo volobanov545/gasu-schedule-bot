@@ -203,33 +203,53 @@ class SpbGasuClient:
         sessid = re.search(r'"bitrix_sessid"\s*:\s*"([^"]+)"', html)
         if sessid:
             form["sessid"] = sessid.group(1)
-        response = await self._client.post(
-            f"{self._base_url}/bitrix/services/main/ajax.php",
-            params={
-                "mode": "class",
-                "c": "gasu:raspisanie.csv",
-                "action": "getRasp",
-            },
-            data=form,
-            headers={
-                "Accept": "application/json",
-                "Referer": f"{self._base_url}/",
-                "User-Agent": "SZS-Hub/0.1",
-                "X-Requested-With": "XMLHttpRequest",
-            },
-        )
-        try:
-            payload: object = response.json()
-        except json.JSONDecodeError:
-            return f"HTTP {response.status_code}; non-JSON"
+        payload: object = {}
+        for _attempt in range(2):
+            response = await self._client.post(
+                f"{self._base_url}/bitrix/services/main/ajax.php",
+                params={
+                    "mode": "class",
+                    "c": "gasu:raspisanie.csv",
+                    "action": "getRasp",
+                },
+                data=form,
+                headers={
+                    "Accept": "application/json",
+                    "Referer": f"{self._base_url}/",
+                    "User-Agent": "SZS-Hub/0.1",
+                    "X-Requested-With": "XMLHttpRequest",
+                },
+            )
+            try:
+                payload = response.json()
+            except json.JSONDecodeError:
+                return f"HTTP {response.status_code}; non-JSON"
+            if isinstance(payload, Mapping) and payload.get("status") == "success":
+                break
+            csrf = payload.get("csrf") if isinstance(payload, Mapping) else None
+            if not isinstance(csrf, str) or not csrf:
+                break
+            form["sessid"] = csrf
         sample = ""
+        public_errors: list[dict[str, str]] = []
         if isinstance(payload, Mapping):
             data = payload.get("data")
             if isinstance(data, Mapping) and isinstance(data.get("html"), str):
                 sample = " ".join(data["html"].split())[:4_000]
+            errors = payload.get("errors")
+            if isinstance(errors, list):
+                for error in errors[:5]:
+                    if not isinstance(error, Mapping):
+                        continue
+                    public_errors.append(
+                        {
+                            "code": str(error.get("code", ""))[:100],
+                            "message": str(error.get("message", ""))[:300],
+                        }
+                    )
         return (
             f"HTTP {response.status_code}; schema={_payload_key_schema(payload)}; "
-            f"html sample={sample}"
+            f"errors={json.dumps(public_errors, ensure_ascii=False)}; html sample={sample}"
         )[:6_000]
 
     async def _probe_public_contract(self, html: str) -> str:
