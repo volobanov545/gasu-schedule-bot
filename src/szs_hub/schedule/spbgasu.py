@@ -8,12 +8,12 @@ import json
 import re
 import time as monotonic_time
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass
-from datetime import date, time, timedelta
+from dataclasses import dataclass, field
+from datetime import date, datetime, time, timedelta
 from enum import StrEnum
 from hashlib import sha256
+from html.parser import HTMLParser
 from typing import Any
-from urllib.parse import urljoin, urlsplit
 
 import httpx
 
@@ -34,16 +34,7 @@ _WEEKDAY_INDEX = {
 _NUMBER_WEEK = re.compile(r"window\.NUMBER_WEEK\s*=\s*['\"]?(\d+)['\"]?\s*;")
 _GROUPS = re.compile(r"window\.GROUPS\s*=\s*(\[[\s\S]*?\])\s*;")
 _LESSON_TYPE = re.compile(r"\s*\((л\.|пр\.|лаб\.|сем\.)\)\s*$", re.IGNORECASE)
-_SCRIPT_SRC = re.compile(r"<script[^>]+src=['\"]([^'\"]+)['\"]", re.IGNORECASE)
-_CONTRACT_SNIPPET = re.compile(
-    r".{0,260}(?:ajax\.php|SERACH|SEARCH|FILTER|quick_search|"
-    r"\$\.ajax|fetch\s*\(|XMLHttpRequest|url\s*:).{0,700}",
-    re.IGNORECASE,
-)
-_GET_DATA_DEFINITION = re.compile(
-    r"(?:function\s+gasu_get_data|(?:const|let|var)\s+gasu_get_data\s*=)",
-    re.IGNORECASE,
-)
+_LESSON_SLOT = re.compile(r"(\d+)\s*пара", re.IGNORECASE)
 
 DEFAULT_BELL_SCHEDULE: Mapping[int, tuple[time, time]] = {
     1: (time(9, 0), time(10, 30)),
@@ -100,6 +91,54 @@ class WeeklySchedule:
 class SchedulePageBootstrap:
     current_week_number: int
     groups: tuple[str, ...]
+
+
+@dataclass(slots=True)
+class _HtmlNode:
+    tag: str
+    attrs: dict[str, str]
+    children: list[_HtmlNode | str] = field(default_factory=list)
+
+    @property
+    def classes(self) -> set[str]:
+        return set(self.attrs.get("class", "").split())
+
+
+class _ScheduleHtmlParser(HTMLParser):
+    _VOID_TAGS = {"br", "img", "input", "link", "meta", "hr"}
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.root = _HtmlNode("root", {})
+        self._stack = [self.root]
+
+    def handle_starttag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        node = _HtmlNode(tag, {key: value or "" for key, value in attrs})
+        self._stack[-1].children.append(node)
+        if tag not in self._VOID_TAGS:
+            self._stack.append(node)
+
+    def handle_startendtag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        self.handle_starttag(tag, attrs)
+        if tag not in self._VOID_TAGS:
+            self._stack.pop()
+
+    def handle_endtag(self, tag: str) -> None:
+        for index in range(len(self._stack) - 1, 0, -1):
+            if self._stack[index].tag == tag:
+                del self._stack[index:]
+                return
+
+    def handle_data(self, data: str) -> None:
+        self._stack[-1].children.append(data)
 
 
 class SpbGasuClient:
@@ -172,6 +211,7 @@ class SpbGasuClient:
         html = await self._request_bootstrap_page()
         bootstrap = parse_schedule_page_bootstrap(html)
         payload = await self._request_group(cleaned)
+        schedule = parse_weekly_schedule(payload, group_key=cleaned)
         normalized_groups = {group.casefold(): group for group in bootstrap.groups}
         candidates = difflib.get_close_matches(
             cleaned.casefold(),
@@ -179,119 +219,16 @@ class SpbGasuClient:
             n=12,
             cutoff=0.35,
         )
+        public_dates = sorted(
+            {item.source_date for item in schedule.lessons if item.source_date}
+        )
         return (
             f"group exact={cleaned.casefold() in normalized_groups}; "
             "public group candidates="
             f"{json.dumps([normalized_groups[item] for item in candidates], ensure_ascii=False)}; "
-            f"key schema={_payload_key_schema(payload)}; "
-            f"public dates={_payload_public_dates(payload)}; "
-            f"containers={_payload_container_schema(payload)}; "
-            f"component probe={await self._probe_component_group(cleaned, html)}; "
-            f"public contract={await self._probe_public_contract(html)}"
+            f"parsed lessons={len(schedule.lessons)}; public dates="
+            f"{json.dumps(public_dates)}"
         )
-
-    async def _probe_component_group(self, group_key: str, html: str) -> str:
-        """Probe the public Bitrix component endpoint without publishing anything."""
-
-        form = {
-            "search_params[SEARCH]": group_key,
-            "search_params[FILTER]": "GROUPS",
-            "search_params[GROUP]": "",
-            "search_params[SELECT]": "*",
-            "search_params[ONLY_SESSIA]": "false",
-        }
-        sessid = re.search(r'"bitrix_sessid"\s*:\s*"([^"]+)"', html)
-        if sessid:
-            form["sessid"] = sessid.group(1)
-        payload: object = {}
-        for _attempt in range(2):
-            response = await self._client.post(
-                f"{self._base_url}/bitrix/services/main/ajax.php",
-                params={
-                    "mode": "class",
-                    "c": "gasu:raspisanie.csv",
-                    "action": "getRasp",
-                },
-                data=form,
-                headers={
-                    "Accept": "application/json",
-                    "Referer": f"{self._base_url}/",
-                    "User-Agent": "SZS-Hub/0.1",
-                    "X-Requested-With": "XMLHttpRequest",
-                },
-            )
-            try:
-                payload = response.json()
-            except json.JSONDecodeError:
-                return f"HTTP {response.status_code}; non-JSON"
-            if isinstance(payload, Mapping) and payload.get("status") == "success":
-                break
-            csrf = _bitrix_csrf_token(payload)
-            if not isinstance(csrf, str) or not csrf:
-                break
-            form["sessid"] = csrf
-        sample = ""
-        public_errors: list[dict[str, str]] = []
-        if isinstance(payload, Mapping):
-            data = payload.get("data")
-            if isinstance(data, Mapping) and isinstance(data.get("html"), str):
-                sample = " ".join(data["html"].split())[:4_000]
-            errors = payload.get("errors")
-            if isinstance(errors, list):
-                for error in errors[:5]:
-                    if not isinstance(error, Mapping):
-                        continue
-                    public_errors.append(
-                        {
-                            "code": str(error.get("code", ""))[:100],
-                            "message": str(error.get("message", ""))[:300],
-                        }
-                    )
-        return (
-            f"HTTP {response.status_code}; schema={_payload_key_schema(payload)}; "
-            f"errors={json.dumps(public_errors, ensure_ascii=False)}; html sample={sample}"
-        )[:6_000]
-
-    async def _probe_public_contract(self, html: str) -> str:
-        """Read public first-party scripts and return short request-contract snippets."""
-
-        base_host = urlsplit(self._base_url).netloc
-        documents: list[tuple[str, str]] = [("page", html)]
-        for raw_src in _SCRIPT_SRC.findall(html)[:20]:
-            url = urljoin(f"{self._base_url}/", raw_src)
-            if urlsplit(url).netloc != base_host:
-                continue
-            try:
-                response = await self._client.get(
-                    url,
-                    headers={"Accept": "text/javascript", "User-Agent": "SZS-Hub/0.1"},
-                )
-            except (httpx.TimeoutException, httpx.NetworkError):
-                continue
-            if response.is_success and len(response.content) <= self._max_response_bytes:
-                documents.append((urlsplit(url).path, response.text))
-
-        snippets = [f"scripts={[source for source, _ in documents[1:]]}"]
-        contract_sources = {
-            "/local/templates/rasp/script.js",
-            "/local/templates/rasp/js/script.js",
-            "/local/templates/rasp/asset/js/main.js",
-        }
-        for source, document in documents:
-            if source not in contract_sources:
-                continue
-            definition = _GET_DATA_DEFINITION.search(document)
-            if definition:
-                excerpt = document[definition.start() : definition.start() + 5_000]
-                compact = " ".join(excerpt.split())
-                snippets.append(f"{source} gasu_get_data: {compact}")
-                continue
-            for match in _CONTRACT_SNIPPET.finditer(document):
-                compact = " ".join(match.group(0).split())
-                snippets.append(f"{source}: {compact[:500]}")
-                if len(snippets) >= 20:
-                    return json.dumps(snippets, ensure_ascii=False)[:8_000]
-        return json.dumps(snippets, ensure_ascii=False)[:8_000]
 
     async def fetch_bootstrap(self) -> SchedulePageBootstrap:
         """Read the page's academic week reference without a student session."""
@@ -308,43 +245,63 @@ class SpbGasuClient:
             self._bootstrap_cache = (self._clock(), bootstrap)
             return bootstrap
 
-    async def _request_group(self, group_key: str) -> object:
-        params = {
-            "SEARCH": group_key,
-            "SERACH": group_key,
-            "FILTER": "GROUPS",
-            "GROUP": "",
-            "SELECT": "*",
+    async def _request_group(self, group_key: str) -> str:
+        form = {
+            "search_params[SEARCH]": group_key,
+            "search_params[FILTER]": "GROUPS",
+            "search_params[GROUP]": "",
+            "search_params[SELECT]": "*",
+            "search_params[ONLY_SESSIA]": "false",
         }
         for attempt in range(self._max_retries + 1):
             try:
-                async with self._client.stream(
-                    "GET",
-                    f"{self._base_url}/local/components/gasu/raspisanie.csv/ajax.php",
-                    params=params,
-                    headers={"Accept": "application/json", "User-Agent": "SZS-Hub/0.1"},
-                ) as response:
+                for csrf_attempt in range(2):
+                    response = await self._client.post(
+                        f"{self._base_url}/bitrix/services/main/ajax.php",
+                        params={
+                            "mode": "class",
+                            "c": "gasu:raspisanie.csv",
+                            "action": "getRasp",
+                        },
+                        data=form,
+                        headers={
+                            "Accept": "application/json",
+                            "Referer": f"{self._base_url}/",
+                            "User-Agent": "SZS-Hub/0.1",
+                            "X-Requested-With": "XMLHttpRequest",
+                        },
+                    )
                     retry_delay = _retry_delay(response, attempt)
-                    if response.status_code not in self._RETRYABLE:
-                        if response.is_error:
-                            raise SpbGasuProtocolError(
-                                "SPbGASU rejected schedule request "
-                                f"(HTTP {response.status_code})"
-                            )
-                        body = await _bounded_body(
-                            response,
-                            limit=self._max_response_bytes,
-                            error="SPbGASU response exceeds the safe size limit",
+                    if response.status_code in self._RETRYABLE:
+                        break
+                    if response.is_error:
+                        raise SpbGasuProtocolError(
+                            "SPbGASU rejected schedule request "
+                            f"(HTTP {response.status_code})"
                         )
-                        try:
-                            payload: object = json.loads(body)
-                        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-                            raise SpbGasuProtocolError(
-                                "SPbGASU returned non-JSON schedule data"
-                            ) from exc
-                        if payload == []:
+                    if len(response.content) > self._max_response_bytes:
+                        raise SpbGasuProtocolError(
+                            "SPbGASU response exceeds the safe size limit"
+                        )
+                    try:
+                        payload: object = response.json()
+                    except json.JSONDecodeError as exc:
+                        raise SpbGasuProtocolError(
+                            "SPbGASU returned non-JSON schedule data"
+                        ) from exc
+                    if isinstance(payload, Mapping) and payload.get("status") == "success":
+                        data = _mapping(payload.get("data"), "schedule component data")
+                        result = _string(data.get("html"))
+                        if not result:
                             raise SpbGasuGroupNotFoundError("SPbGASU group was not found")
-                        return payload
+                        return result
+                    csrf = _bitrix_csrf_token(payload)
+                    if csrf_attempt == 0 and csrf:
+                        form["sessid"] = csrf
+                        continue
+                    raise SpbGasuProtocolError(
+                        f"SPbGASU component failed ({_bitrix_error_codes(payload)})"
+                    )
             except (httpx.TimeoutException, httpx.NetworkError) as exc:
                 if attempt >= self._max_retries:
                     raise SpbGasuUnavailableError("SPbGASU schedule request failed") from exc
@@ -426,6 +383,8 @@ def parse_schedule_page_bootstrap(html: str) -> SchedulePageBootstrap:
 
 
 def parse_weekly_schedule(payload: object, *, group_key: str) -> WeeklySchedule:
+    if isinstance(payload, str):
+        return _parse_schedule_html(payload, group_key=group_key)
     root = _mapping(payload, "schedule response")
     wrapped = root.get("R")
     schedule_root = _mapping(wrapped, "schedule response R") if wrapped is not None else root
@@ -463,6 +422,57 @@ def parse_weekly_schedule(payload: object, *, group_key: str) -> WeeklySchedule:
     return WeeklySchedule(group_key, tuple(lessons))
 
 
+def _parse_schedule_html(html: str, *, group_key: str) -> WeeklySchedule:
+    parser = _ScheduleHtmlParser()
+    parser.feed(html)
+    lessons: list[WeeklyLesson] = []
+    for week in _nodes_with_class(parser.root, "item"):
+        week_text = _node_text(week).casefold()
+        parity = (
+            WeekParity.DENOMINATOR
+            if "знаменатель" in week_text
+            else WeekParity.NUMERATOR
+        )
+        for day_node in _nodes_with_class(week, "days"):
+            date_node = _first_node_with_class(day_node, "date")
+            if date_node is None:
+                continue
+            lesson_day = _parse_public_date(_node_text(date_node))
+            if lesson_day is None:
+                continue
+            for lesson_node in _nodes_with_class(day_node, "lesson"):
+                day_name = _first_node_with_class(lesson_node, "day_name")
+                slot_match = _LESSON_SLOT.search(_node_text(day_name) if day_name else "")
+                if slot_match is None:
+                    continue
+                slot = int(slot_match.group(1))
+                blocks = _nodes_with_class(lesson_node, "lesson_block")
+                for occurrence, block in enumerate(blocks):
+                    columns = [
+                        _node_text(child)
+                        for child in block.children
+                        if isinstance(child, _HtmlNode) and child.tag == "div"
+                    ]
+                    subject_node = _first_node_with_class(block, "lesson-name")
+                    subject = _node_text(subject_node) if subject_node else ""
+                    if not subject:
+                        continue
+                    lessons.append(
+                        WeeklyLesson(
+                            weekday=lesson_day.weekday(),
+                            slot=slot,
+                            parity=parity,
+                            subject=subject,
+                            group=_column(columns, 1),
+                            auditorium=_column(columns, 2),
+                            professor=_column(columns, 3),
+                            source_date=lesson_day.isoformat(),
+                            occurrence=occurrence,
+                        )
+                    )
+    return WeeklySchedule(group_key, tuple(lessons))
+
+
 def materialize_week(
     schedule: WeeklySchedule,
     *,
@@ -474,8 +484,15 @@ def materialize_week(
         raise ValueError("schedule week anchor must be a Monday")
     lessons: list[Lesson] = []
     for raw in schedule.lessons:
-        if raw.parity is not parity:
-            continue
+        source_day = _parse_public_date(raw.source_date) if raw.source_date else None
+        if source_day is not None:
+            if not monday <= source_day <= monday + timedelta(days=6):
+                continue
+            lesson_day = source_day
+        else:
+            if raw.parity is not parity:
+                continue
+            lesson_day = monday + timedelta(days=raw.weekday)
         times = bell_schedule.get(raw.slot)
         if not times:
             raise SpbGasuProtocolError(f"unknown SPbGASU lesson slot: {raw.slot}")
@@ -487,7 +504,7 @@ def materialize_week(
         )
         lessons.append(
             Lesson(
-                day=monday + timedelta(days=raw.weekday),
+                day=lesson_day,
                 starts_at=times[0],
                 ends_at=times[1],
                 subject=subject,
@@ -568,6 +585,67 @@ def _bitrix_csrf_token(payload: object) -> str | None:
         if isinstance(csrf, str) and csrf:
             return csrf
     return None
+
+
+def _bitrix_error_codes(payload: object) -> str:
+    if not isinstance(payload, Mapping) or not isinstance(payload.get("errors"), list):
+        return "unknown error"
+    codes = [
+        str(error.get("code", "unknown"))[:100]
+        for error in payload["errors"][:5]
+        if isinstance(error, Mapping)
+    ]
+    return ", ".join(codes) or "unknown error"
+
+
+def _nodes_with_class(node: _HtmlNode, class_name: str) -> list[_HtmlNode]:
+    matches: list[_HtmlNode] = []
+    for child in node.children:
+        if not isinstance(child, _HtmlNode):
+            continue
+        if class_name in child.classes:
+            matches.append(child)
+        matches.extend(_nodes_with_class(child, class_name))
+    return matches
+
+
+def _first_node_with_class(node: _HtmlNode, class_name: str) -> _HtmlNode | None:
+    for child in node.children:
+        if not isinstance(child, _HtmlNode):
+            continue
+        if class_name in child.classes:
+            return child
+        nested = _first_node_with_class(child, class_name)
+        if nested is not None:
+            return nested
+    return None
+
+
+def _node_text(node: _HtmlNode) -> str:
+    parts: list[str] = []
+    pending: list[_HtmlNode | str] = list(reversed(node.children))
+    while pending:
+        item = pending.pop()
+        if isinstance(item, str):
+            parts.append(item)
+        else:
+            pending.extend(reversed(item.children))
+    return " ".join("".join(parts).split())
+
+
+def _parse_public_date(value: str | None) -> date | None:
+    if not value:
+        return None
+    for pattern in ("%Y-%m-%d", "%d.%m.%Y"):
+        try:
+            return datetime.strptime(value.strip(), pattern).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _column(columns: list[str], index: int) -> str | None:
+    return columns[index].strip() if index < len(columns) and columns[index].strip() else None
 
 
 def _payload_public_dates(value: object) -> str:

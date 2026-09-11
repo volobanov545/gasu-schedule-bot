@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, time
+from urllib.parse import parse_qs
 
 import httpx
 import pytest
@@ -42,6 +43,28 @@ def payload() -> dict[str, object]:
     }
 
 
+def component_html() -> str:
+    return """
+    <div class="owl-carousel">
+      <div class="item" data-hash="week_2">
+        <div class="time week_today">Неделя №2: Знаменатель</div>
+        <div class="days">
+          <div class="week_day"><div>ПТ</div><div class="date">11.09.2026</div></div>
+          <div class="lessons">
+            <div class="lesson">
+              <div class="day_name"><b>2 пара</b><br>10:45-12:15</div>
+              <div class="lesson_block">
+                <div><span class="lesson-name">Геодезия (л.)</span></div>
+                <div>3-СУЗСс-3</div><div>407/1</div><div>Иванов И. И.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    """
+
+
 def test_response_wrapper_and_root_shape_are_supported() -> None:
     wrapped = parse_weekly_schedule(payload(), group_key="СЗС-3")
     root = parse_weekly_schedule(payload()["R"], group_key="СЗС-3")
@@ -73,6 +96,22 @@ def test_week_materialization_uses_official_bell_slots() -> None:
     assert lessons[0].building == "1"
 
 
+def test_component_html_uses_published_dates_instead_of_week_template() -> None:
+    schedule = parse_weekly_schedule(component_html(), group_key="3-СУЗСс-3")
+
+    lessons = materialize_week(
+        schedule,
+        monday=date(2026, 9, 7),
+        parity=WeekParity.DENOMINATOR,
+    )
+
+    assert len(lessons) == 1
+    assert lessons[0].day == date(2026, 9, 11)
+    assert lessons[0].starts_at == time(10, 45)
+    assert lessons[0].subject == "Геодезия"
+    assert lessons[0].room == "407"
+
+
 def test_bootstrap_extracts_week_number_and_groups() -> None:
     html = """
     <script>
@@ -99,17 +138,39 @@ def test_parity_is_derived_from_official_current_week_number() -> None:
 
 
 @pytest.mark.asyncio
-async def test_client_sends_current_and_legacy_search_keys_and_caches() -> None:
+async def test_client_uses_component_api_refreshes_csrf_and_caches() -> None:
     requests: list[httpx.Request] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
-        assert request.url.params["SEARCH"] == "СЗС-3"
-        assert request.url.params["SERACH"] == "СЗС-3"
-        assert request.url.params["FILTER"] == "GROUPS"
-        assert request.url.params["GROUP"] == ""
-        assert request.url.params["SELECT"] == "*"
-        return httpx.Response(200, json=payload())
+        assert request.method == "POST"
+        assert request.url.path == "/bitrix/services/main/ajax.php"
+        assert request.url.params["mode"] == "class"
+        assert request.url.params["c"] == "gasu:raspisanie.csv"
+        assert request.url.params["action"] == "getRasp"
+        form = parse_qs(request.content.decode(), keep_blank_values=True)
+        assert form["search_params[SEARCH]"] == ["СЗС-3"]
+        assert form["search_params[FILTER]"] == ["GROUPS"]
+        if len(requests) == 1:
+            return httpx.Response(
+                200,
+                json={
+                    "status": "error",
+                    "data": None,
+                    "errors": [
+                        {
+                            "code": "invalid_csrf",
+                            "message": "Invalid csrf token",
+                            "customData": {"csrf": "fresh-token"},
+                        }
+                    ],
+                },
+            )
+        assert form["sessid"] == ["fresh-token"]
+        return httpx.Response(
+            200,
+            json={"status": "success", "data": {"html": component_html()}, "errors": []},
+        )
 
     http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     client = SpbGasuClient(client=http, cache_seconds=300)
@@ -118,7 +179,7 @@ async def test_client_sends_current_and_legacy_search_keys_and_caches() -> None:
     second = await client.fetch_group("СЗС-3")
 
     assert first == second
-    assert len(requests) == 1
+    assert len(requests) == 2
     await http.aclose()
 
 
@@ -152,7 +213,10 @@ async def test_client_fetches_and_caches_public_week_bootstrap() -> None:
 @pytest.mark.asyncio
 async def test_unknown_group_is_explicit() -> None:
     async def handler(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json=[])
+        return httpx.Response(
+            200,
+            json={"status": "success", "data": {"html": ""}, "errors": []},
+        )
 
     http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     client = SpbGasuClient(client=http, cache_seconds=300)
@@ -167,13 +231,17 @@ async def test_client_rejects_empty_template_with_key_only_diagnostics() -> None
     async def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
-            json={"R": {"Понедельник": {}}, "PRIVATE_VALUE": "hidden"},
+            json={
+                "status": "success",
+                "data": {"html": '<div class="days"><div class="date">01.09.2026</div></div>'},
+                "errors": [],
+            },
         )
 
     http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     client = SpbGasuClient(client=http, cache_seconds=300)
 
-    with pytest.raises(SpbGasuProtocolError, match='"Понедельник": 1') as error:
+    with pytest.raises(SpbGasuProtocolError, match="parsed as empty") as error:
         await client.fetch_group("СЗС-3")
     assert "hidden" not in str(error.value)
     await http.aclose()
