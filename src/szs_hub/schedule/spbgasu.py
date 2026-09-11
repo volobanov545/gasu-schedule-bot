@@ -186,8 +186,51 @@ class SpbGasuClient:
             f"key schema={_payload_key_schema(payload)}; "
             f"public dates={_payload_public_dates(payload)}; "
             f"containers={_payload_container_schema(payload)}; "
+            f"component probe={await self._probe_component_group(cleaned, html)}; "
             f"public contract={await self._probe_public_contract(html)}"
         )
+
+    async def _probe_component_group(self, group_key: str, html: str) -> str:
+        """Probe the public Bitrix component endpoint without publishing anything."""
+
+        form = {
+            "search_params[SEARCH]": group_key,
+            "search_params[FILTER]": "GROUPS",
+            "search_params[GROUP]": "",
+            "search_params[SELECT]": "*",
+            "search_params[ONLY_SESSIA]": "false",
+        }
+        sessid = re.search(r'"bitrix_sessid"\s*:\s*"([^"]+)"', html)
+        if sessid:
+            form["sessid"] = sessid.group(1)
+        response = await self._client.post(
+            f"{self._base_url}/bitrix/services/main/ajax.php",
+            params={
+                "mode": "class",
+                "c": "gasu:raspisanie.csv",
+                "action": "getRasp",
+            },
+            data=form,
+            headers={
+                "Accept": "application/json",
+                "Referer": f"{self._base_url}/",
+                "User-Agent": "SZS-Hub/0.1",
+                "X-Requested-With": "XMLHttpRequest",
+            },
+        )
+        try:
+            payload: object = response.json()
+        except json.JSONDecodeError:
+            return f"HTTP {response.status_code}; non-JSON"
+        sample = ""
+        if isinstance(payload, Mapping):
+            data = payload.get("data")
+            if isinstance(data, Mapping) and isinstance(data.get("html"), str):
+                sample = " ".join(data["html"].split())[:4_000]
+        return (
+            f"HTTP {response.status_code}; schema={_payload_key_schema(payload)}; "
+            f"html sample={sample}"
+        )[:6_000]
 
     async def _probe_public_contract(self, html: str) -> str:
         """Read public first-party scripts and return short request-contract snippets."""
