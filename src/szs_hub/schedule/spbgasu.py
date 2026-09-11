@@ -151,6 +151,19 @@ class SpbGasuClient:
             self._cache[cleaned] = (self._clock(), schedule)
             return schedule
 
+    async def probe_group_schema(self, group_key: str) -> str:
+        """Fetch once and expose structure/public dates without lesson or person values."""
+
+        cleaned = group_key.strip()
+        if not cleaned:
+            raise ValueError("SPbGASU group key cannot be empty")
+        payload = await self._request_group(cleaned)
+        return (
+            f"key schema={_payload_key_schema(payload)}; "
+            f"public dates={_payload_public_dates(payload)}; "
+            f"containers={_payload_container_schema(payload)}"
+        )
+
     async def fetch_bootstrap(self) -> SchedulePageBootstrap:
         """Read the page's academic week reference without a student session."""
 

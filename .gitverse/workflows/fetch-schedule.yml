@@ -8,6 +8,11 @@ on:
         required: false
         default: false
         type: boolean
+      probe_schema:
+        description: Print a redacted SPbGASU response shape and do not contact GitHub
+        required: false
+        default: false
+        type: boolean
   schedule:
     # Moscow time: 06:50, 12:20, 17:20 and 20:30.
     - cron: "50 3 * * *"
@@ -29,6 +34,7 @@ jobs:
       TELEGRAM_MODE: outbound_only
       AI_KILL_SWITCH: "true"
       SCHEDULE_FORCE_DIGEST: ${{ inputs.force_digest }}
+      SPBGASU_PROBE_SCHEMA: ${{ inputs.probe_schema }}
 
     steps:
       - name: Check out the current GitHub source
@@ -50,7 +56,9 @@ jobs:
 
       - name: Fetch and hand off the two-week schedule
         run: |
-          if [ "$SCHEDULE_FORCE_DIGEST" = "true" ]; then
+          if [ "$SPBGASU_PROBE_SCHEMA" = "true" ]; then
+            szs-hub probe-spbgasu
+          elif [ "$SCHEDULE_FORCE_DIGEST" = "true" ]; then
             szs-hub dispatch-tomorrow --force-digest
           else
             szs-hub dispatch-tomorrow

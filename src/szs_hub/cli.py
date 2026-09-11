@@ -83,6 +83,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="отправить вечернюю карточку вне обычного времени для проверки вида",
     )
     subcommands.add_parser(
+        "probe-spbgasu",
+        help="показать только безопасную структуру ответа расписания без отправки",
+    )
+    subcommands.add_parser(
         "publish-dispatched",
         help="отправить в Telegram проверенную карточку от GitVerse",
     )
@@ -188,6 +192,27 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"Карточка не передана: {type(exc).__name__}: {exc}", file=sys.stderr)
             return 1
         print("Карточка передана в GitHub.")
+        return 0
+    if args.command == "probe-spbgasu":
+        from szs_hub.schedule.spbgasu import SpbGasuClient
+
+        group_key = (settings.spbgasu_group_id or "").strip()
+        if not group_key:
+            print("Диагностика не запущена: SPBGASU_GROUP_ID не задан.", file=sys.stderr)
+            return 2
+
+        async def probe() -> str:
+            client = SpbGasuClient(base_url=settings.spbgasu_base_url)
+            try:
+                return await client.probe_group_schema(group_key)
+            finally:
+                await client.aclose()
+
+        try:
+            print(asyncio.run(probe()))
+        except Exception as exc:
+            print(f"Диагностика не выполнена: {type(exc).__name__}: {exc}", file=sys.stderr)
+            return 1
         return 0
     if args.command == "publish-dispatched":
         from szs_hub.publisher import publish_dispatched
