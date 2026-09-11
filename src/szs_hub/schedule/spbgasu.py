@@ -13,6 +13,7 @@ from datetime import date, time, timedelta
 from enum import StrEnum
 from hashlib import sha256
 from typing import Any
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 
@@ -33,6 +34,11 @@ _WEEKDAY_INDEX = {
 _NUMBER_WEEK = re.compile(r"window\.NUMBER_WEEK\s*=\s*['\"]?(\d+)['\"]?\s*;")
 _GROUPS = re.compile(r"window\.GROUPS\s*=\s*(\[[\s\S]*?\])\s*;")
 _LESSON_TYPE = re.compile(r"\s*\((л\.|пр\.|лаб\.|сем\.)\)\s*$", re.IGNORECASE)
+_SCRIPT_SRC = re.compile(r"<script[^>]+src=['\"]([^'\"]+)['\"]", re.IGNORECASE)
+_CONTRACT_SNIPPET = re.compile(
+    r".{0,120}(?:ajax\.php|SERACH|SEARCH|FILTER).{0,240}",
+    re.IGNORECASE,
+)
 
 DEFAULT_BELL_SCHEDULE: Mapping[int, tuple[time, time]] = {
     1: (time(9, 0), time(10, 30)),
@@ -158,7 +164,8 @@ class SpbGasuClient:
         cleaned = group_key.strip()
         if not cleaned:
             raise ValueError("SPbGASU group key cannot be empty")
-        bootstrap = await self.fetch_bootstrap()
+        html = await self._request_bootstrap_page()
+        bootstrap = parse_schedule_page_bootstrap(html)
         payload = await self._request_group(cleaned)
         normalized_groups = {group.casefold(): group for group in bootstrap.groups}
         candidates = difflib.get_close_matches(
@@ -173,8 +180,37 @@ class SpbGasuClient:
             f"{json.dumps([normalized_groups[item] for item in candidates], ensure_ascii=False)}; "
             f"key schema={_payload_key_schema(payload)}; "
             f"public dates={_payload_public_dates(payload)}; "
-            f"containers={_payload_container_schema(payload)}"
+            f"containers={_payload_container_schema(payload)}; "
+            f"public contract={await self._probe_public_contract(html)}"
         )
+
+    async def _probe_public_contract(self, html: str) -> str:
+        """Read public first-party scripts and return short request-contract snippets."""
+
+        base_host = urlsplit(self._base_url).netloc
+        documents: list[tuple[str, str]] = [("page", html)]
+        for raw_src in _SCRIPT_SRC.findall(html)[:20]:
+            url = urljoin(f"{self._base_url}/", raw_src)
+            if urlsplit(url).netloc != base_host:
+                continue
+            try:
+                response = await self._client.get(
+                    url,
+                    headers={"Accept": "text/javascript", "User-Agent": "SZS-Hub/0.1"},
+                )
+            except (httpx.TimeoutException, httpx.NetworkError):
+                continue
+            if response.is_success and len(response.content) <= self._max_response_bytes:
+                documents.append((urlsplit(url).path, response.text))
+
+        snippets: list[str] = []
+        for source, document in documents:
+            for match in _CONTRACT_SNIPPET.finditer(document):
+                compact = " ".join(match.group(0).split())
+                snippets.append(f"{source}: {compact[:500]}")
+                if len(snippets) >= 20:
+                    return json.dumps(snippets, ensure_ascii=False)[:8_000]
+        return json.dumps(snippets, ensure_ascii=False)[:8_000]
 
     async def fetch_bootstrap(self) -> SchedulePageBootstrap:
         """Read the page's academic week reference without a student session."""

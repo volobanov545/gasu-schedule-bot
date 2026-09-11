@@ -1,16 +1,22 @@
-name: Send schedule received from GitVerse
+name: Remind about today's classes
 
 on:
   workflow_dispatch:
-    inputs:
-      text_b64:
-        description: Prepared schedule card encoded as Base64
-        required: true
-        type: string
-      group:
-        description: SPbGASU group identifier
-        required: true
-        type: string
+  schedule:
+    # UTC moments for every possible first-class-minus-2h and class-end-minus-15m.
+    - cron: "0 4 * * *"
+    - cron: "45 5 * * *"
+    - cron: "30 7 * * *"
+    - cron: "15 7 * * *"
+    - cron: "0 9 * * *"
+    - cron: "0 10 * * *"
+    - cron: "45 10 * * *"
+    - cron: "45 11 * * *"
+    - cron: "15 13 * * *"
+    - cron: "30 13 * * *"
+    - cron: "0 15 * * *"
+    - cron: "15 15 * * *"
+    - cron: "45 16 * * *"
 
 permissions:
   contents: read
@@ -20,7 +26,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  send:
+  remind:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
@@ -28,8 +34,6 @@ jobs:
       TARGET_CHAT_ID: ${{ secrets.TARGET_CHAT_ID }}
       SCHEDULE_TOPIC_ID: ${{ secrets.SCHEDULE_TOPIC_ID }}
       SPBGASU_GROUP_ID: ${{ secrets.SPBGASU_GROUP_ID }}
-      SCHEDULE_TEXT_B64: ${{ inputs.text_b64 }}
-      SCHEDULE_GROUP: ${{ inputs.group }}
       SCHEDULE_STATE_PATH: .schedule-state/state.json
       FEATURE_PROFILE: schedule_only
       TELEGRAM_MODE: outbound_only
@@ -45,10 +49,10 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      - name: Install schedule receiver
+      - name: Install schedule reminder
         run: python -m pip install .
 
-      - name: Restore the latest comparison state
+      - name: Restore the latest schedule state
         uses: actions/cache/restore@v4
         with:
           path: .schedule-state
@@ -56,11 +60,12 @@ jobs:
           restore-keys: |
             schedule-state-
 
-      - name: Compare and update Telegram when useful
-        run: szs-hub publish-dispatched
+      - name: Send a reminder only when it is due
+        run: szs-hub publish-reminder
 
-      - name: Save comparison state
+      - name: Save reminder state
         uses: actions/cache/save@v4
         with:
           path: .schedule-state
           key: schedule-state-${{ github.run_id }}-${{ github.run_attempt }}
+

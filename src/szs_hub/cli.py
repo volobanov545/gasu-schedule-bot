@@ -90,6 +90,10 @@ def build_parser() -> argparse.ArgumentParser:
         "publish-dispatched",
         help="отправить в Telegram проверенную карточку от GitVerse",
     )
+    subcommands.add_parser(
+        "publish-reminder",
+        help="отправить напоминание о первой или следующей паре, если оно наступило",
+    )
 
     alert = subcommands.add_parser(
         "alert", help="отправить владельцу системное оповещение"
@@ -238,6 +242,28 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"Telegram обновлён, message_id={ids}.")
         else:
             print("Расписание проверено: изменений нет, Telegram не беспокоим.")
+        return 0
+    if args.command == "publish-reminder":
+        from szs_hub.publisher import publish_due_reminder
+
+        try:
+            message_ids = asyncio.run(
+                publish_due_reminder(
+                    settings,
+                    state_path=Path(
+                        os.environ.get(
+                            "SCHEDULE_STATE_PATH", ".schedule-state/state.json"
+                        )
+                    ),
+                )
+            )
+        except Exception as exc:
+            print(f"Напоминание не отправлено: {type(exc).__name__}: {exc}", file=sys.stderr)
+            return 1
+        if message_ids:
+            print(f"Напоминание отправлено, Telegram message_id={message_ids[0]}.")
+        else:
+            print("Сейчас напоминание не требуется.")
         return 0
     if args.command == "backup":
         output = args.output or _default_backup_path()

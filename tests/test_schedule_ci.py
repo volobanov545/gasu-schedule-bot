@@ -7,6 +7,7 @@ from szs_hub.schedule.ci import (
     ScheduleDeliveryState,
     ScheduleEnvelope,
     decode_schedule_envelope,
+    due_reminder,
     encode_schedule_envelope,
     load_delivery_state,
     overlapping_changes,
@@ -88,13 +89,13 @@ def test_rich_digest_uses_article_primitives_and_escapes_source_data() -> None:
     rendered = render_rich_digest(
         envelope,
         local_now=datetime(2026, 9, 1, 20, 30, tzinfo=UTC),
-        source_url="https://rasp.spbgasu.ru/",
     )
 
     assert rendered.startswith("<h1>📅 Завтра")
     assert "<table striped compact>" in rendered
     assert "<details><summary>Неделя" in rendered
-    assert "<tg-button-row" in rendered
+    assert "<tg-button-row" not in rendered
+    assert "https://" not in rendered
     assert "&lt;ЖБК &amp; геодезия&gt;" in rendered
 
 
@@ -107,12 +108,87 @@ def test_nighttime_forced_digest_keeps_the_upcoming_current_day() -> None:
     rendered = render_rich_digest(
         envelope,
         local_now=datetime(2026, 9, 11, 1, 50, tzinfo=UTC),
-        source_url="https://rasp.spbgasu.ru/",
     )
 
     assert rendered.startswith("<h1>📅 Сегодня · 11 сентября</h1>")
     assert "Пятничная пара" in rendered
     assert "Неделя · 11 сентября — 17 сентября" in rendered
+
+
+def test_first_class_reminder_is_due_two_hours_before_and_only_once() -> None:
+    envelope = _envelope(
+        date(2026, 9, 7),
+        _lesson(date(2026, 9, 11), subject="Геодезия"),
+    )
+    now = datetime(2026, 9, 11, 8, 45, tzinfo=UTC)
+
+    reminder = due_reminder(envelope, local_now=now, sent_markers=())
+
+    assert reminder is not None
+    marker, text = reminder
+    assert marker == "first:2026-09-11:10:45:00"
+    assert "Первая пара через 2 часа" in text
+    assert "10:45" in text
+    assert "Геодезия" in text
+    assert due_reminder(envelope, local_now=now, sent_markers=(marker,)) is None
+
+
+def test_next_class_reminder_names_time_place_and_wait() -> None:
+    current = _lesson(date(2026, 9, 11), subject="Сопромат")
+    current = Lesson(
+        day=current.day,
+        starts_at=time(9, 0),
+        ends_at=time(10, 30),
+        subject=current.subject,
+        room="312",
+        building="1",
+        source_id="current",
+    )
+    following = Lesson(
+        day=current.day,
+        starts_at=time(10, 45),
+        ends_at=time(12, 15),
+        subject="Геодезия",
+        room="407",
+        building="2",
+        source_id="next",
+    )
+    envelope = _envelope(date(2026, 9, 7), current, following)
+
+    reminder = due_reminder(
+        envelope,
+        local_now=datetime(2026, 9, 11, 10, 15, tzinfo=UTC),
+        sent_markers=(),
+    )
+
+    assert reminder is not None
+    _, text = reminder
+    assert "Следующая пара через 30 мин" in text
+    assert "Текущая закончится через 15 мин" in text
+    assert "10:45" in text
+    assert "407 · <i>корп. 2</i>" in text
+
+
+def test_no_transition_reminder_after_last_class() -> None:
+    envelope = _envelope(
+        date(2026, 9, 7),
+        Lesson(
+            day=date(2026, 9, 11),
+            starts_at=time(9, 0),
+            ends_at=time(10, 30),
+            subject="Последняя пара",
+            source_id="last",
+        ),
+    )
+
+    assert (
+        due_reminder(
+            envelope,
+            local_now=datetime(2026, 9, 11, 10, 15, tzinfo=UTC),
+            sent_markers=(),
+        )
+        is None
+    )
 
 
 def test_delivery_state_survives_ci_cache_and_digest_is_once_per_day(tmp_path) -> None:

@@ -83,6 +83,7 @@ class ScheduleEnvelope:
 class ScheduleDeliveryState:
     previous: ScheduleEnvelope | None = None
     last_digest_date: date | None = None
+    sent_reminders: tuple[str, ...] = ()
 
 
 def encode_schedule_envelope(envelope: ScheduleEnvelope) -> str:
@@ -118,7 +119,17 @@ def load_delivery_state(path: Path) -> ScheduleDeliveryState:
         previous = _envelope_from_dict(previous_raw) if previous_raw is not None else None
         digest_raw = payload.get("last_digest_date")
         digest_day = date.fromisoformat(digest_raw) if isinstance(digest_raw, str) else None
-        return ScheduleDeliveryState(previous=previous, last_digest_date=digest_day)
+        reminders_raw = payload.get("sent_reminders", [])
+        reminders = (
+            tuple(item for item in reminders_raw if isinstance(item, str) and len(item) <= 100)
+            if isinstance(reminders_raw, list)
+            else ()
+        )
+        return ScheduleDeliveryState(
+            previous=previous,
+            last_digest_date=digest_day,
+            sent_reminders=reminders[-100:],
+        )
     except (OSError, ValueError, TypeError, AttributeError, json.JSONDecodeError):
         return ScheduleDeliveryState()
 
@@ -130,6 +141,7 @@ def save_delivery_state(path: Path, state: ScheduleDeliveryState) -> None:
         "last_digest_date": (
             state.last_digest_date.isoformat() if state.last_digest_date else None
         ),
+        "sent_reminders": list(state.sent_reminders[-100:]),
         "previous": _envelope_dict(state.previous) if state.previous else None,
     }
     path.write_text(
@@ -179,7 +191,6 @@ def render_rich_digest(
     envelope: ScheduleEnvelope,
     *,
     local_now: datetime,
-    source_url: str,
 ) -> str:
     """Render Telegram Bot API 10.3 Rich HTML: useful first, details collapsed."""
 
@@ -217,11 +228,6 @@ def render_rich_digest(
                 f"<footer>{escape(envelope.group_key)} · проверено "
                 f"{envelope.fetched_at:%H:%M} МСК · СПбГАСУ</footer>"
             ),
-            (
-                '<tg-button-row align="left"><tg-button type="url" style="primary" '
-                f'url="{escape(source_url, quote=True)}">Открыть источник</tg-button>'
-                "</tg-button-row>"
-            ),
         )
     )
     return "".join(blocks)
@@ -231,13 +237,11 @@ def render_digest_fallback(
     envelope: ScheduleEnvelope,
     *,
     local_now: datetime,
-    source_url: str,
 ) -> str:
     primary_day, relative_label = _digest_target(local_now)
     lessons = _lessons_on(envelope.lessons, primary_day)
     day = render_day_card(primary_day, lessons, relative_label=relative_label)
-    clean_url = escape(source_url, quote=True)
-    return f'{day}\n\n<a href="{clean_url}">Источник: СПбГАСУ</a>'
+    return day
 
 
 def _digest_target(local_now: datetime) -> tuple[date, str]:
@@ -252,7 +256,6 @@ def render_rich_changes(
     changes: tuple[ScheduleChange, ...],
     *,
     fetched_at: datetime,
-    source_url: str,
 ) -> str:
     shown = changes[:12]
     blocks = ["<h2>⚠️ Расписание изменилось</h2>"]
@@ -272,22 +275,68 @@ def render_rich_changes(
     blocks.extend(
         (
             (
-                f"<footer>Проверено {fetched_at:%H:%M} МСК · "
-                f'<a href="{escape(source_url, quote=True)}">СПбГАСУ</a></footer>'
-            ),
-            (
-                '<tg-button-row align="left"><tg-button type="url" style="primary" '
-                f'url="{escape(source_url, quote=True)}">Актуальное расписание</tg-button>'
-                "</tg-button-row>"
+                f"<footer>Проверено {fetched_at:%H:%M} МСК · СПбГАСУ</footer>"
             ),
         )
     )
     return "".join(blocks)
 
 
-def render_changes_fallback(changes: tuple[ScheduleChange, ...], *, source_url: str) -> str:
-    text = render_schedule_changes(changes[:12], relative_label="в расписании")
-    return f'{text}\n\n<a href="{escape(source_url, quote=True)}">СПбГАСУ</a>'
+def render_changes_fallback(changes: tuple[ScheduleChange, ...]) -> str:
+    return render_schedule_changes(changes[:12], relative_label="в расписании")
+
+
+def due_reminder(
+    envelope: ScheduleEnvelope,
+    *,
+    local_now: datetime,
+    sent_markers: tuple[str, ...],
+) -> tuple[str, str] | None:
+    """Return at most one concise class reminder for the current local time."""
+
+    lessons = _lessons_on(envelope.lessons, local_now.date())
+    if not lessons:
+        return None
+    sent = set(sent_markers)
+    blocks: dict[tuple[time, time], list[Lesson]] = {}
+    for lesson in lessons:
+        blocks.setdefault((lesson.starts_at, lesson.ends_at), []).append(lesson)
+    ordered = sorted(blocks.items())
+
+    for (starts_at, ends_at), _current_lessons in ordered:
+        starts = _local_lesson_time(local_now, starts_at)
+        ends = _local_lesson_time(local_now, ends_at)
+        minutes_left = int((ends - local_now).total_seconds() // 60)
+        if starts <= local_now < ends and 5 <= minutes_left <= 25:
+            next_blocks = [item for item in ordered if item[0][0] >= ends_at]
+            if not next_blocks:
+                return None
+            (next_start, _), next_lessons = next_blocks[0]
+            marker = f"next:{local_now.date().isoformat()}:{ends_at}:{next_start}"
+            if marker in sent:
+                return None
+            until_next = int(
+                (_local_lesson_time(local_now, next_start) - local_now).total_seconds()
+                // 60
+            )
+            text = (
+                f"⏳ <b>Следующая пара через {_minutes_phrase(until_next)}</b>\n"
+                f"Текущая закончится через {_minutes_phrase(minutes_left)}.\n\n"
+                f"{_reminder_block(next_start, tuple(next_lessons))}"
+            )
+            return marker, text
+
+    first_start = ordered[0][0][0]
+    first_at = _local_lesson_time(local_now, first_start)
+    minutes_until = int((first_at - local_now).total_seconds() // 60)
+    marker = f"first:{local_now.date().isoformat()}:{first_start}"
+    if 105 <= minutes_until <= 130 and marker not in sent:
+        text = (
+            f"⏰ <b>Первая пара через {_minutes_phrase(minutes_until)}</b>\n\n"
+            f"{_reminder_block(first_start, tuple(ordered[0][1]))}"
+        )
+        return marker, text
+    return None
 
 
 def changes_are_urgent(changes: tuple[ScheduleChange, ...], *, today: date) -> bool:
@@ -377,6 +426,34 @@ def _lessons_on(lessons: tuple[Lesson, ...], day: date) -> tuple[Lesson, ...]:
             key=lambda item: (item.starts_at, item.subject.casefold()),
         )
     )
+
+
+def _local_lesson_time(local_now: datetime, value: time) -> datetime:
+    return datetime.combine(local_now.date(), value, tzinfo=local_now.tzinfo)
+
+
+def _minutes_phrase(minutes: int) -> str:
+    if minutes == 120:
+        return "2 часа"
+    if minutes >= 60:
+        hours, rest = divmod(minutes, 60)
+        return f"{hours} ч {rest} мин" if rest else f"{hours} ч"
+    return f"{minutes} мин"
+
+
+def _reminder_block(starts_at: time, lessons: tuple[Lesson, ...]) -> str:
+    rows = []
+    for lesson in lessons:
+        subject = escape(lesson.subject.strip())
+        details = []
+        location = _location(lesson)
+        if location:
+            details.append(f"📍 {location.replace('<br>', ' · ')}")
+        if lesson.subgroup:
+            details.append(escape(lesson.subgroup.strip()))
+        suffix = f"\n{' · '.join(details)}" if details else ""
+        rows.append(f"<b>{starts_at:%H:%M}</b> · {subject}{suffix}")
+    return "\n\n".join(rows)
 
 
 def _rich_lesson_table(lessons: tuple[Lesson, ...]) -> str:

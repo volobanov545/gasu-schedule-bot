@@ -26,6 +26,7 @@ from szs_hub.schedule.ci import (
     ScheduleEnvelope,
     changes_are_urgent,
     decode_schedule_envelope,
+    due_reminder,
     encode_schedule_envelope,
     load_delivery_state,
     overlapping_changes,
@@ -372,12 +373,8 @@ async def publish_dispatched(
                     rich_html=render_rich_changes(
                         changes,
                         fetched_at=envelope.fetched_at,
-                        source_url=settings.spbgasu_base_url,
                     ),
-                    fallback_html=render_changes_fallback(
-                        changes,
-                        source_url=settings.spbgasu_base_url,
-                    ),
+                    fallback_html=render_changes_fallback(changes),
                     silent=not changes_are_urgent(changes, today=local_now.date()),
                 )
             )
@@ -391,12 +388,10 @@ async def publish_dispatched(
                     rich_html=render_rich_digest(
                         envelope,
                         local_now=local_now,
-                        source_url=settings.spbgasu_base_url,
                     ),
                     fallback_html=render_digest_fallback(
                         envelope,
                         local_now=local_now,
-                        source_url=settings.spbgasu_base_url,
                     ),
                     silent=False,
                 )
@@ -407,9 +402,60 @@ async def publish_dispatched(
             ScheduleDeliveryState(
                 previous=envelope,
                 last_digest_date=local_now.date() if publish_digest else state.last_digest_date,
+                sent_reminders=state.sent_reminders,
             ),
         )
         return tuple(sent)
+    finally:
+        if own_destination:
+            await _close_source(schedule_destination)
+
+
+async def publish_due_reminder(
+    settings: Settings,
+    *,
+    destination: ScheduleDestination | None = None,
+    state_path: Path = Path(".schedule-state/state.json"),
+    clock: Callable[[], datetime] = utc_now,
+) -> tuple[int, ...]:
+    """Send one due class reminder from the last schedule snapshot, then mark it sent."""
+
+    token = _required_secret(settings.telegram_bot_token, "TELEGRAM_BOT_TOKEN")
+    chat_id = _required_int(settings.target_chat_id, "TARGET_CHAT_ID", negative=True)
+    topic_id = _required_int(settings.schedule_topic_id, "SCHEDULE_TOPIC_ID", negative=False)
+    now = clock()
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("publisher clock must be timezone-aware")
+    local_now = now.astimezone(_load_timezone(settings.timezone))
+    state = load_delivery_state(state_path)
+    if state.previous is None:
+        return ()
+    reminder = due_reminder(
+        state.previous,
+        local_now=local_now,
+        sent_markers=state.sent_reminders,
+    )
+    if reminder is None:
+        return ()
+
+    marker, text = reminder
+    own_destination = destination is None
+    schedule_destination = destination or TelegramBotApiDestination(token)
+    try:
+        message_id = await schedule_destination.send(
+            chat_id=chat_id,
+            topic_id=topic_id,
+            text=text,
+        )
+        save_delivery_state(
+            state_path,
+            ScheduleDeliveryState(
+                previous=state.previous,
+                last_digest_date=state.last_digest_date,
+                sent_reminders=(*state.sent_reminders, marker)[-100:],
+            ),
+        )
+        return (message_id,)
     finally:
         if own_destination:
             await _close_source(schedule_destination)
