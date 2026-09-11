@@ -521,8 +521,8 @@ def test_ci_bridge_workflows_keep_telegram_token_out_of_gitverse() -> None:
     assert "szs-hub dispatch-tomorrow" in gitverse
     assert "TELEGRAM_BOT_TOKEN" not in gitverse
     assert "inputs.text_b64" in receiver
-    assert "actions/cache/restore@v4" in receiver
-    assert "actions/cache/save@v4" in receiver
+    assert "actions/cache/restore@v6" in receiver
+    assert "actions/cache/save@v6" in receiver
     assert "secrets.TELEGRAM_BOT_TOKEN" in receiver
     assert "szs-hub publish-dispatched" in receiver
     for state_consumer in (receiver, reminder):
