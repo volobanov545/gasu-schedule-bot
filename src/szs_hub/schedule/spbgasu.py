@@ -40,6 +40,10 @@ _CONTRACT_SNIPPET = re.compile(
     r"\$\.ajax|fetch\s*\(|XMLHttpRequest|url\s*:).{0,700}",
     re.IGNORECASE,
 )
+_GET_DATA_DEFINITION = re.compile(
+    r"(?:function\s+gasu_get_data|(?:const|let|var)\s+gasu_get_data\s*=)",
+    re.IGNORECASE,
+)
 
 DEFAULT_BELL_SCHEDULE: Mapping[int, tuple[time, time]] = {
     1: (time(9, 0), time(10, 30)),
@@ -212,6 +216,12 @@ class SpbGasuClient:
         }
         for source, document in documents:
             if source not in contract_sources:
+                continue
+            definition = _GET_DATA_DEFINITION.search(document)
+            if definition:
+                excerpt = document[definition.start() : definition.start() + 5_000]
+                compact = " ".join(excerpt.split())
+                snippets.append(f"{source} gasu_get_data: {compact}")
                 continue
             for match in _CONTRACT_SNIPPET.finditer(document):
                 compact = " ".join(match.group(0).split())
