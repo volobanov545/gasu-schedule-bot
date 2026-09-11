@@ -87,7 +87,7 @@ def test_rich_digest_uses_article_primitives_and_escapes_source_data() -> None:
 
     rendered = render_rich_digest(
         envelope,
-        local_today=date(2026, 9, 1),
+        local_now=datetime(2026, 9, 1, 20, 30, tzinfo=UTC),
         source_url="https://rasp.spbgasu.ru/",
     )
 
@@ -96,6 +96,23 @@ def test_rich_digest_uses_article_primitives_and_escapes_source_data() -> None:
     assert "<details><summary>Неделя" in rendered
     assert "<tg-button-row" in rendered
     assert "&lt;ЖБК &amp; геодезия&gt;" in rendered
+
+
+def test_nighttime_forced_digest_keeps_the_upcoming_current_day() -> None:
+    envelope = _envelope(
+        date(2026, 9, 7),
+        _lesson(date(2026, 9, 11), subject="Пятничная пара"),
+    )
+
+    rendered = render_rich_digest(
+        envelope,
+        local_now=datetime(2026, 9, 11, 1, 50, tzinfo=UTC),
+        source_url="https://rasp.spbgasu.ru/",
+    )
+
+    assert rendered.startswith("<h1>📅 Сегодня · 11 сентября</h1>")
+    assert "Пятничная пара" in rendered
+    assert "Неделя · 11 сентября — 17 сентября" in rendered
 
 
 def test_delivery_state_survives_ci_cache_and_digest_is_once_per_day(tmp_path) -> None:

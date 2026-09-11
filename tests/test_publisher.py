@@ -267,7 +267,7 @@ async def test_github_receiver_sends_forced_rich_digest_and_persists_state(
     assert message_ids == (78,)
     assert state_path.is_file()
     assert len(destination.rich_sent) == 1
-    assert "<h1>📅 Завтра" in destination.rich_sent[0][2]
+    assert "<h1>📅 Сегодня" in destination.rich_sent[0][2]
     assert "<details><summary>Неделя" in destination.rich_sent[0][2]
 
 

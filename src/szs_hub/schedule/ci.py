@@ -178,28 +178,28 @@ def should_publish_digest(
 def render_rich_digest(
     envelope: ScheduleEnvelope,
     *,
-    local_today: date,
+    local_now: datetime,
     source_url: str,
 ) -> str:
     """Render Telegram Bot API 10.3 Rich HTML: useful first, details collapsed."""
 
-    tomorrow = local_today + timedelta(days=1)
-    end = tomorrow + timedelta(days=6)
-    visible = tuple(lesson for lesson in envelope.lessons if tomorrow <= lesson.day <= end)
-    tomorrow_lessons = _lessons_on(visible, tomorrow)
+    primary_day, relative_label = _digest_target(local_now)
+    end = primary_day + timedelta(days=6)
+    visible = tuple(lesson for lesson in envelope.lessons if primary_day <= lesson.day <= end)
+    primary_lessons = _lessons_on(visible, primary_day)
     blocks = [
-        f"<h1>📅 Завтра · {tomorrow.day} {_MONTHS[tomorrow.month]}</h1>",
-        f"<p><b>{_WEEKDAYS[tomorrow.weekday()].capitalize()}</b></p>",
+        f"<h1>📅 {relative_label} · {primary_day.day} {_MONTHS[primary_day.month]}</h1>",
+        f"<p><b>{_WEEKDAYS[primary_day.weekday()].capitalize()}</b></p>",
     ]
-    if tomorrow_lessons:
-        blocks.append(_rich_lesson_table(tomorrow_lessons))
-        blocks.append(f"<p>{_day_summary(tomorrow_lessons)}</p>")
+    if primary_lessons:
+        blocks.append(_rich_lesson_table(primary_lessons))
+        blocks.append(f"<p>{_day_summary(primary_lessons)}</p>")
     else:
         blocks.append("<aside>Пар нет — можно выдохнуть.</aside>")
 
     week_rows = []
     for day_offset in range(7):
-        day = tomorrow + timedelta(days=day_offset)
+        day = primary_day + timedelta(days=day_offset)
         lessons = _lessons_on(visible, day)
         week_rows.append(
             f"<h3>{_SHORT_WEEKDAYS[day.weekday()]}, "
@@ -210,7 +210,7 @@ def render_rich_digest(
         (
             "<hr/>",
             (
-                f"<details><summary>Неделя · {tomorrow.day} {_MONTHS[tomorrow.month]} — "
+                f"<details><summary>Неделя · {primary_day.day} {_MONTHS[primary_day.month]} — "
                 f"{end.day} {_MONTHS[end.month]}</summary>{''.join(week_rows)}</details>"
             ),
             (
@@ -230,14 +230,22 @@ def render_rich_digest(
 def render_digest_fallback(
     envelope: ScheduleEnvelope,
     *,
-    local_today: date,
+    local_now: datetime,
     source_url: str,
 ) -> str:
-    tomorrow = local_today + timedelta(days=1)
-    lessons = _lessons_on(envelope.lessons, tomorrow)
-    day = render_day_card(tomorrow, lessons, relative_label="Завтра")
+    primary_day, relative_label = _digest_target(local_now)
+    lessons = _lessons_on(envelope.lessons, primary_day)
+    day = render_day_card(primary_day, lessons, relative_label=relative_label)
     clean_url = escape(source_url, quote=True)
     return f'{day}\n\n<a href="{clean_url}">Источник: СПбГАСУ</a>'
+
+
+def _digest_target(local_now: datetime) -> tuple[date, str]:
+    """At night/morning show today; after the evening digest cutoff show tomorrow."""
+
+    if local_now.hour < 20:
+        return local_now.date(), "Сегодня"
+    return local_now.date() + timedelta(days=1), "Завтра"
 
 
 def render_rich_changes(

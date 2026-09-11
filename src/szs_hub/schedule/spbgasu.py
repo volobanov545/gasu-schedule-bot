@@ -168,6 +168,7 @@ class SpbGasuClient:
 
     async def _request_group(self, group_key: str) -> object:
         params = {
+            "SEARCH": group_key,
             "SERACH": group_key,
             "FILTER": "GROUPS",
             "GROUP": "",

@@ -99,16 +99,16 @@ def test_parity_is_derived_from_official_current_week_number() -> None:
 
 
 @pytest.mark.asyncio
-async def test_client_uses_exact_typo_and_caches() -> None:
+async def test_client_sends_current_and_legacy_search_keys_and_caches() -> None:
     requests: list[httpx.Request] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
+        assert request.url.params["SEARCH"] == "СЗС-3"
         assert request.url.params["SERACH"] == "СЗС-3"
         assert request.url.params["FILTER"] == "GROUPS"
         assert request.url.params["GROUP"] == ""
         assert request.url.params["SELECT"] == "*"
-        assert "SEARCH" not in request.url.params
         return httpx.Response(200, json=payload())
 
     http = httpx.AsyncClient(transport=httpx.MockTransport(handler))

@@ -390,12 +390,12 @@ async def publish_dispatched(
                     topic_id=topic_id,
                     rich_html=render_rich_digest(
                         envelope,
-                        local_today=local_now.date(),
+                        local_now=local_now,
                         source_url=settings.spbgasu_base_url,
                     ),
                     fallback_html=render_digest_fallback(
                         envelope,
-                        local_today=local_now.date(),
+                        local_now=local_now,
                         source_url=settings.spbgasu_base_url,
                     ),
                     silent=False,
