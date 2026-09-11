@@ -226,7 +226,7 @@ class SpbGasuClient:
                 return f"HTTP {response.status_code}; non-JSON"
             if isinstance(payload, Mapping) and payload.get("status") == "success":
                 break
-            csrf = payload.get("csrf") if isinstance(payload, Mapping) else None
+            csrf = _bitrix_csrf_token(payload)
             if not isinstance(csrf, str) or not csrf:
                 break
             form["sessid"] = csrf
@@ -550,6 +550,24 @@ def _payload_key_schema(value: object) -> str:
         elif isinstance(item, list):
             pending.extend(item[:1_000])
     return json.dumps(dict(sorted(counts.items())), ensure_ascii=False)[:2_000]
+
+
+def _bitrix_csrf_token(payload: object) -> str | None:
+    if not isinstance(payload, Mapping):
+        return None
+    errors = payload.get("errors")
+    if not isinstance(errors, list):
+        return None
+    for error in errors:
+        if not isinstance(error, Mapping):
+            continue
+        custom_data = error.get("customData")
+        if not isinstance(custom_data, Mapping):
+            continue
+        csrf = custom_data.get("csrf")
+        if isinstance(csrf, str) and csrf:
+            return csrf
+    return None
 
 
 def _payload_public_dates(value: object) -> str:
