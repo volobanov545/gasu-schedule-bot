@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import difflib
 import json
 import re
 import time as monotonic_time
@@ -157,8 +158,19 @@ class SpbGasuClient:
         cleaned = group_key.strip()
         if not cleaned:
             raise ValueError("SPbGASU group key cannot be empty")
+        bootstrap = await self.fetch_bootstrap()
         payload = await self._request_group(cleaned)
+        normalized_groups = {group.casefold(): group for group in bootstrap.groups}
+        candidates = difflib.get_close_matches(
+            cleaned.casefold(),
+            normalized_groups,
+            n=12,
+            cutoff=0.35,
+        )
         return (
+            f"group exact={cleaned.casefold() in normalized_groups}; "
+            "public group candidates="
+            f"{json.dumps([normalized_groups[item] for item in candidates], ensure_ascii=False)}; "
             f"key schema={_payload_key_schema(payload)}; "
             f"public dates={_payload_public_dates(payload)}; "
             f"containers={_payload_container_schema(payload)}"
