@@ -144,7 +144,9 @@ class SpbGasuClient:
             if not schedule.lessons:
                 raise SpbGasuProtocolError(
                     "SPbGASU weekly template parsed as empty; key schema="
-                    f"{_payload_key_schema(payload)}"
+                    f"{_payload_key_schema(payload)}; public dates="
+                    f"{_payload_public_dates(payload)}; containers="
+                    f"{_payload_container_schema(payload)}"
                 )
             self._cache[cleaned] = (self._clock(), schedule)
             return schedule
@@ -405,6 +407,44 @@ def _payload_key_schema(value: object) -> str:
         elif isinstance(item, list):
             pending.extend(item[:1_000])
     return json.dumps(dict(sorted(counts.items())), ensure_ascii=False)[:2_000]
+
+
+def _payload_public_dates(value: object) -> str:
+    """Return only public timetable DATE fields, never lesson or person values."""
+
+    dates: set[str] = set()
+    pending = [value]
+    while pending and len(dates) < 100:
+        item = pending.pop()
+        if isinstance(item, Mapping):
+            raw_date = item.get("DATE")
+            if isinstance(raw_date, str) and raw_date.strip():
+                dates.add(raw_date.strip()[:40])
+            pending.extend(item.values())
+        elif isinstance(item, list):
+            pending.extend(item[:1_000])
+    return json.dumps(sorted(dates), ensure_ascii=False)[:2_000]
+
+
+def _payload_container_schema(value: object) -> str:
+    """Describe container types by redacted path so API shape drift is visible."""
+
+    shapes: dict[str, set[str]] = {}
+    pending: list[tuple[str, object]] = [("$", value)]
+    visited = 0
+    while pending and visited < 10_000:
+        path, item = pending.pop()
+        visited += 1
+        if isinstance(item, Mapping):
+            shapes.setdefault(path, set()).add(f"object[{len(item)}]")
+            for key, child in item.items():
+                segment = str(key) if path in ("$", "$.R") else "*"
+                pending.append((f"{path}.{segment}", child))
+        elif isinstance(item, list):
+            shapes.setdefault(path, set()).add(f"list[{len(item)}]")
+            pending.extend((f"{path}[]", child) for child in item[:1_000])
+    compact = {path: sorted(kinds) for path, kinds in sorted(shapes.items())}
+    return json.dumps(compact, ensure_ascii=False)[:2_000]
 
 
 def _weekday(value: object) -> int:
