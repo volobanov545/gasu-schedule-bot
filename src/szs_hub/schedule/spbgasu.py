@@ -36,7 +36,8 @@ _GROUPS = re.compile(r"window\.GROUPS\s*=\s*(\[[\s\S]*?\])\s*;")
 _LESSON_TYPE = re.compile(r"\s*\((л\.|пр\.|лаб\.|сем\.)\)\s*$", re.IGNORECASE)
 _SCRIPT_SRC = re.compile(r"<script[^>]+src=['\"]([^'\"]+)['\"]", re.IGNORECASE)
 _CONTRACT_SNIPPET = re.compile(
-    r".{0,180}(?:ajax\.php|SERACH).{0,360}",
+    r".{0,260}(?:ajax\.php|SERACH|SEARCH|FILTER|quick_search|"
+    r"\$\.ajax|fetch\s*\(|XMLHttpRequest|url\s*:).{0,700}",
     re.IGNORECASE,
 )
 
@@ -205,6 +206,8 @@ class SpbGasuClient:
 
         snippets = [f"scripts={[source for source, _ in documents[1:]]}"]
         for source, document in documents:
+            if source != "page" and not source.startswith("/local/templates/rasp/"):
+                continue
             for match in _CONTRACT_SNIPPET.finditer(document):
                 compact = " ".join(match.group(0).split())
                 snippets.append(f"{source}: {compact[:500]}")
