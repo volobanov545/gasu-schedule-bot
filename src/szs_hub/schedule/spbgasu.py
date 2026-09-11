@@ -36,7 +36,7 @@ _GROUPS = re.compile(r"window\.GROUPS\s*=\s*(\[[\s\S]*?\])\s*;")
 _LESSON_TYPE = re.compile(r"\s*\((л\.|пр\.|лаб\.|сем\.)\)\s*$", re.IGNORECASE)
 _SCRIPT_SRC = re.compile(r"<script[^>]+src=['\"]([^'\"]+)['\"]", re.IGNORECASE)
 _CONTRACT_SNIPPET = re.compile(
-    r".{0,120}(?:ajax\.php|SERACH|SEARCH|FILTER).{0,240}",
+    r".{0,180}(?:ajax\.php|SERACH).{0,360}",
     re.IGNORECASE,
 )
 
@@ -203,7 +203,7 @@ class SpbGasuClient:
             if response.is_success and len(response.content) <= self._max_response_bytes:
                 documents.append((urlsplit(url).path, response.text))
 
-        snippets: list[str] = []
+        snippets = [f"scripts={[source for source, _ in documents[1:]]}"]
         for source, document in documents:
             for match in _CONTRACT_SNIPPET.finditer(document):
                 compact = " ".join(match.group(0).split())
