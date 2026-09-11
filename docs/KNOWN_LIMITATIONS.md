@@ -1,17 +1,21 @@
 # Known limitations and release blockers
 
-This is the honest boundary of SZS Hub as of 2026-09-02. A passing unit-test suite does
+This is the honest boundary of SZS Hub as of 2026-09-11. A passing unit-test suite does
 not remove a limitation that requires Telegram, SPbGASU, provider, browser, host, or human
 evidence. Resolve or explicitly accept every release blocker before production.
 
+The narrow `schedule_only` release is now externally proven through
+SPbGASU → GitVerse → GitHub → Telegram. A no-send probe of the current source contract
+parsed 42 real lessons for the configured group. The broader attendance/archive/AI/VPS
+profile remains dormant; its older blockers below do not block the schedule-only bot.
+
 ## Hard release blockers
 
-- **The schedule-only scope is implemented but not externally proven (2026-09-03).**
-  It does not request Telegram updates and enables only schedule jobs, a technical
-  heartbeat, and static schedule-topic sends. Unit tests verify those boundaries.
-  The exact public source request and Telegram publication still need a disposable
-  staging test from the selected VPS. The dormant full profile remains legally and
-  operationally blocked; see [Russian launch review](LEGAL_LAUNCH_RU.md).
+- **The schedule-only CI path is live; timing remains best-effort.** It does not request
+  Telegram updates or collect student IDs. GitVerse and GitHub scheduled jobs can be
+  delayed or disabled by their providers, and Actions cache is not durable storage.
+  A cache eviction can suppress reminders until the next received snapshot or allow a
+  duplicate notification. This is accepted for the zero-cost small-group release.
 
 - **Runnable locally, not yet proven in staging.** `src/szs_hub/app.py` composes the
   long-poller, durable inbox, independent core/material workers, outbox sender, schedule
@@ -21,14 +25,9 @@ evidence. Resolve or explicitly accept every release blocker before production.
 - **No Telegram staging credentials or disposable forum group.** The bot token, real
   chat/topic/headman IDs, permissions, update allowlist, reaction delivery, private
   `/start`, copy/file behavior, and restart semantics remain unverified end to end.
-- **Chrome unavailable.** The requested Chrome connection is not active. Exact Network
-  capture for the current SPbGASU page and current Telegram client rendering has not been
-  completed. Chrome-specific work must not be silently substituted with another browser.
-- **Computer Use unavailable.** Windows application discovery failed twice with `EPERM`
-  on the Codex application path. No permission or setting was changed to bypass it.
-- **SPbGASU reachability not proven from the target host.** DNS/TCP succeeded during
-  research, but application HTTP timed out through that environment. The full-time public
-  endpoint parser has fixtures; the candidate VPS still needs a real bounded request.
+- **The current Telegram client rendering is not a compatibility guarantee.** Rich
+  Message is attempted first and a classic HTML fallback preserves the essential card.
+  Visual differences across old clients are expected.
 - **Hosting and recovery not proven.** The 4VPS candidate is not purchased/burned in, the
   RUVDS fallback is not exercised, and no encrypted object backup has completed a full
   download/decrypt/restore drill.
@@ -70,16 +69,17 @@ evidence. Resolve or explicitly accept every release blocker before production.
 
 ## Schedule-source limits
 
-- The public full-time route uses an observed endpoint with a misspelled `SERACH` parameter
-  and a response wrapper that has changed before. The parser supports observed root and
-  `R` wrapper shapes, not arbitrary future schemas.
-- A group-not-found result can be an empty list and may be indistinguishable from certain
-  upstream data errors without page/source corroboration. It must not publish an empty day
-  as a newly confirmed cancellation.
-- The parameterless endpoint returns a large aggregate response and is intentionally
-  impossible through the client API. The group identifier is required.
-- Week-number/parity is derived from currently observed first-party page data/rules and
-  needs a date-boundary staging check against the official page.
+- The public full-time route uses the observed Bitrix component action
+  `gasu:raspisanie.csv/getRasp`, a refreshed public CSRF token, and current HTML classes.
+  The upstream site has already changed once and provides no stability guarantee.
+- The parser deliberately fails the whole run when any schedule-bearing date, slot,
+  subject, parity, or explicit source date is malformed. This avoids false cancellations
+  but means a harmless upstream markup change may temporarily stop updates until adapted.
+- An entirely empty component response is treated as a source/protocol failure rather than
+  proof of a day with no classes. A valid nonempty two-week response may still contain an
+  individual day with no lessons, which renders correctly as «Пар нет».
+- The group identifier is fixed and required; aggregate or parameterless retrieval is not
+  available through the application client.
 - Bell slots are based on the current official PDF. A university change requires a
   versioned update and semantic review.
 - The IBFO/part-time Bitrix POST flow is not implemented. Exact form/session serialization
@@ -174,8 +174,9 @@ evidence. Resolve or explicitly accept every release blocker before production.
 
 - Dependencies use version ranges and are not hash locked. A versioned verified wheelhouse
   is a production release requirement.
-- No hosted CI workflow is included. Adding one before action versions are pinned to
-  reviewed immutable full commit SHAs would add supply-chain ambiguity.
+- Hosted CI is active on GitVerse and GitHub. Third-party actions are pinned to major
+  release tags rather than immutable commit SHAs, so upstream action compromise remains
+  a small supply-chain risk accepted for this release.
 - Docker is not assumed and was unavailable in the development environment. The supported
   deployment shape is a versioned Python artifact under systemd.
 - Git has no configured author identity in the development environment, so no identity or

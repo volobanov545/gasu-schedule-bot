@@ -228,3 +228,34 @@ snapshot history without changing the user-facing rules.
 GitVerse's workflow checks out the private GitHub `main` explicitly through the existing
 fine-grained bridge token (Contents read-only). GitHub is therefore the single code source;
 future fixes do not need to be copied through the GitVerse web editor file by file.
+
+## D-014 — Parse the current Bitrix component, fail closed, and add calm reminders
+
+**Supersedes.** The source contract in D-009 and the direct GitHub sender in D-011 are
+historical. The old weekly JSON endpoint stopped returning usable lesson data.
+
+**Evidence.** The current first-party page calls Bitrix `runComponentAction` for
+`gasu:raspisanie.csv/getRasp`. A first request returns a refreshed public CSRF token and
+the repeated POST returns HTML containing dated week/day/lesson blocks. A no-send GitVerse
+probe parsed 42 lessons for the exact configured group and dates including 11.09.2026.
+
+**Decision.** GitVerse uses the component POST, retries once with the returned CSRF token,
+and converts the current HTML into a bounded dated envelope. Any schedule-bearing day,
+slot, subject, parity, or nonempty date that no longer matches the known structure aborts
+the run instead of publishing a partial snapshot. GitHub ignores out-of-order snapshots.
+
+A forced digest is a corrective rebaseline: it sends exactly one requested card and does
+not interpret an earlier empty/broken cache as dozens of newly added lessons. The obsolete
+direct `publish-schedule.yml` workflow and every source button/link were removed.
+
+GitHub also runs one reminder command at the finite set of bell-derived times. It sends the
+first-class notice about two hours before class and, near the end of a current class, names
+the next class, start time, location, and remaining wait. It sends nothing after the final
+class. Persistent markers deduplicate normal retries; the full configured group name is
+hidden while a real subgroup label remains visible.
+
+**Reliability tradeoff.** The two state workflows use one queued concurrency group and a
+versioned Actions cache. Cache remains best-effort rather than a database: eviction can
+temporarily suppress reminders until the next schedule snapshot or allow a duplicate.
+This is accepted for the zero-cost, approximately 30-person release. Strict delivery would
+justify a durable external store or always-on host later.

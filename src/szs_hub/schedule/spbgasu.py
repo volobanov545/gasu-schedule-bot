@@ -427,26 +427,35 @@ def _parse_schedule_html(html: str, *, group_key: str) -> WeeklySchedule:
     parser.feed(html)
     lessons: list[WeeklyLesson] = []
     for week in _nodes_with_class(parser.root, "item"):
-        week_text = _node_text(week).casefold()
-        parity = (
-            WeekParity.DENOMINATOR
-            if "знаменатель" in week_text
-            else WeekParity.NUMERATOR
-        )
+        week_lessons = _nodes_with_class(week, "lesson")
+        if not week_lessons:
+            continue
+        parity_node = _first_node_with_class(week, "time")
+        week_text = _node_text(parity_node).casefold() if parity_node else ""
+        has_numerator = "числитель" in week_text
+        has_denominator = "знаменатель" in week_text
+        if has_numerator == has_denominator:
+            raise SpbGasuProtocolError("SPbGASU schedule week parity is malformed")
+        parity = WeekParity.NUMERATOR if has_numerator else WeekParity.DENOMINATOR
         for day_node in _nodes_with_class(week, "days"):
+            day_lessons = _nodes_with_class(day_node, "lesson")
+            if not day_lessons:
+                continue
             date_node = _first_node_with_class(day_node, "date")
             if date_node is None:
-                continue
+                raise SpbGasuProtocolError("SPbGASU schedule day has no date")
             lesson_day = _parse_public_date(_node_text(date_node))
             if lesson_day is None:
-                continue
-            for lesson_node in _nodes_with_class(day_node, "lesson"):
+                raise SpbGasuProtocolError("SPbGASU schedule day has an invalid date")
+            for lesson_node in day_lessons:
                 day_name = _first_node_with_class(lesson_node, "day_name")
                 slot_match = _LESSON_SLOT.search(_node_text(day_name) if day_name else "")
                 if slot_match is None:
-                    continue
+                    raise SpbGasuProtocolError("SPbGASU schedule lesson slot is malformed")
                 slot = int(slot_match.group(1))
                 blocks = _nodes_with_class(lesson_node, "lesson_block")
+                if not blocks:
+                    raise SpbGasuProtocolError("SPbGASU schedule lesson has no details")
                 for occurrence, block in enumerate(blocks):
                     columns = [
                         _node_text(child)
@@ -456,7 +465,7 @@ def _parse_schedule_html(html: str, *, group_key: str) -> WeeklySchedule:
                     subject_node = _first_node_with_class(block, "lesson-name")
                     subject = _node_text(subject_node) if subject_node else ""
                     if not subject:
-                        continue
+                        raise SpbGasuProtocolError("SPbGASU schedule subject is missing")
                     lessons.append(
                         WeeklyLesson(
                             weekday=lesson_day.weekday(),
@@ -484,7 +493,11 @@ def materialize_week(
         raise ValueError("schedule week anchor must be a Monday")
     lessons: list[Lesson] = []
     for raw in schedule.lessons:
-        source_day = _parse_public_date(raw.source_date) if raw.source_date else None
+        source_day = None
+        if raw.source_date:
+            source_day = _parse_public_date(raw.source_date)
+            if source_day is None:
+                raise SpbGasuProtocolError("SPbGASU lesson date is malformed")
         if source_day is not None:
             if not monday <= source_day <= monday + timedelta(days=6):
                 continue
@@ -499,7 +512,7 @@ def materialize_week(
         subject, lesson_type = _split_lesson_type(raw.subject)
         room, building = _split_auditorium(raw.auditorium)
         source = (
-            f"{schedule.group_key}|{raw.weekday}|{raw.slot}|{raw.parity}|"
+            f"{schedule.group_key}|{source_day or ''}|{raw.weekday}|{raw.slot}|{raw.parity}|"
             f"{normalize_text(raw.group)}|{raw.occurrence}"
         )
         lessons.append(

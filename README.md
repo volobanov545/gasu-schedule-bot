@@ -6,9 +6,9 @@ to one configured Telegram topic. It does not receive chat updates or process st
 messages, files, reactions, or Telegram user IDs in the default `schedule_only` profile.
 
 The selected deployment is a two-CI bridge, not a VPS or an always-on home computer.
-A Russian GitVerse runner fetches and renders the public schedule, then dispatches only
-the prepared card to a narrow GitHub Actions receiver. GitHub holds the Telegram token
-and sends the card. Setup and bridge status are in
+A Russian GitVerse runner fetches the public schedule and dispatches only a bounded,
+validated two-week snapshot to a narrow GitHub Actions receiver. GitHub holds the
+Telegram token, renders the card, sends it, and schedules class reminders. Setup and bridge status are in
 [docs/GITHUB_ACTIONS_RU.md](docs/GITHUB_ACTIONS_RU.md).
 
 The runnable modular monolith, durable storage, schedule/attendance/archive flows, and

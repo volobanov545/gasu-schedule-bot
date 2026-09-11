@@ -307,7 +307,7 @@ def due_reminder(
         starts = _local_lesson_time(local_now, starts_at)
         ends = _local_lesson_time(local_now, ends_at)
         minutes_left = int((ends - local_now).total_seconds() // 60)
-        if starts <= local_now < ends and 5 <= minutes_left <= 25:
+        if starts <= local_now < ends and 0 <= minutes_left <= 25:
             next_blocks = [item for item in ordered if item[0][0] >= ends_at]
             if not next_blocks:
                 return None
@@ -322,7 +322,7 @@ def due_reminder(
             text = (
                 f"⏳ <b>Следующая пара через {_minutes_phrase(until_next)}</b>\n"
                 f"Текущая закончится через {_minutes_phrase(minutes_left)}.\n\n"
-                f"{_reminder_block(next_start, tuple(next_lessons))}"
+                f"{_reminder_block(next_start, tuple(next_lessons), group_key=envelope.group_key)}"
             )
             return marker, text
 
@@ -330,10 +330,10 @@ def due_reminder(
     first_at = _local_lesson_time(local_now, first_start)
     minutes_until = int((first_at - local_now).total_seconds() // 60)
     marker = f"first:{local_now.date().isoformat()}:{first_start}"
-    if 105 <= minutes_until <= 130 and marker not in sent:
+    if 90 <= minutes_until <= 130 and marker not in sent:
         text = (
             f"⏰ <b>Первая пара через {_minutes_phrase(minutes_until)}</b>\n\n"
-            f"{_reminder_block(first_start, tuple(ordered[0][1]))}"
+            f"{_reminder_block(first_start, tuple(ordered[0][1]), group_key=envelope.group_key)}"
         )
         return marker, text
     return None
@@ -441,7 +441,12 @@ def _minutes_phrase(minutes: int) -> str:
     return f"{minutes} мин"
 
 
-def _reminder_block(starts_at: time, lessons: tuple[Lesson, ...]) -> str:
+def _reminder_block(
+    starts_at: time,
+    lessons: tuple[Lesson, ...],
+    *,
+    group_key: str,
+) -> str:
     rows = []
     for lesson in lessons:
         subject = escape(lesson.subject.strip())
@@ -449,7 +454,7 @@ def _reminder_block(starts_at: time, lessons: tuple[Lesson, ...]) -> str:
         location = _location(lesson)
         if location:
             details.append(f"📍 {location.replace('<br>', ' · ')}")
-        if lesson.subgroup:
+        if lesson.subgroup and lesson.subgroup.strip().casefold() != group_key.strip().casefold():
             details.append(escape(lesson.subgroup.strip()))
         suffix = f"\n{' · '.join(details)}" if details else ""
         rows.append(f"<b>{starts_at:%H:%M}</b> · {subject}{suffix}")

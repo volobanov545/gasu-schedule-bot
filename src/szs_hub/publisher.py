@@ -243,7 +243,6 @@ async def publish_tomorrow(
             group_key=group_key,
             now=now,
             timezone=settings.timezone,
-            source_url=settings.spbgasu_base_url,
         )
         return await schedule_destination.send(chat_id=chat_id, topic_id=topic_id, text=text)
     finally:
@@ -362,7 +361,18 @@ async def publish_dispatched(
             raise ValueError("publisher clock must be timezone-aware")
         local_now = now.astimezone(_load_timezone(settings.timezone))
         state = load_delivery_state(state_path)
-        changes = overlapping_changes(state.previous, envelope, today=local_now.date())
+        if state.previous is not None and envelope.fetched_at <= state.previous.fetched_at:
+            # GitVerse manual and scheduled runs can finish out of order. Never
+            # regress the comparison baseline or emit reverse/duplicate changes.
+            return ()
+        # A forced digest is an operator-requested corrective snapshot. Treat it as
+        # a clean rebaseline so a previously empty/broken cache cannot manufacture
+        # a wall of "added" lessons before the requested card.
+        changes = (
+            ()
+            if envelope.force_digest
+            else overlapping_changes(state.previous, envelope, today=local_now.date())
+        )
         sent: list[int] = []
 
         if changes:
@@ -517,8 +527,8 @@ def decode_schedule_card(value: str) -> str:
 def _validate_schedule_card(text: str) -> None:
     if not text.startswith("📅 <b>Завтра</b> · "):
         raise ValueError("bridge payload is not a tomorrow schedule card")
-    if not text.endswith('<a href="https://rasp.spbgasu.ru/">Источник: СПбГАСУ</a>'):
-        raise ValueError("bridge payload has an unexpected source")
+    if "rasp.spbgasu.ru" in text or "Источник: СПбГАСУ" in text:
+        raise ValueError("bridge payload must not include a source link")
     if len(text) > 4096:
         raise ValueError("bridge schedule payload exceeds Telegram limit")
 
@@ -529,7 +539,6 @@ async def build_tomorrow_card(
     group_key: str,
     now: datetime,
     timezone: str,
-    source_url: str,
 ) -> str:
     """Build a minimal card from the current public weekly schedule."""
 
@@ -553,8 +562,7 @@ async def build_tomorrow_card(
         if lesson.day == tomorrow
     )
     card = render_day_card(tomorrow, lessons, relative_label="Завтра")
-    clean_url = source_url.rstrip("/") + "/"
-    return f'{card}\n\n<a href="{clean_url}">Источник: СПбГАСУ</a>'
+    return card
 
 
 async def _close_source(source: object) -> None:

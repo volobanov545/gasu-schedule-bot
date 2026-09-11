@@ -3,7 +3,7 @@ name: Remind about today's classes
 on:
   workflow_dispatch:
   schedule:
-    # UTC moments for every possible first-class-minus-2h and class-end-minus-15m.
+    # UTC moments for every first-class-minus-2h and every useful transition.
     - cron: "0 4 * * *"
     - cron: "45 5 * * *"
     - cron: "30 7 * * *"
@@ -23,6 +23,7 @@ permissions:
 
 concurrency:
   group: szs-schedule-state
+  queue: max
   cancel-in-progress: false
 
 jobs:
@@ -56,9 +57,9 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .schedule-state
-          key: schedule-state-${{ github.run_id }}-${{ github.run_attempt }}
+          key: schedule-state-v2-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            schedule-state-
+            schedule-state-v2-
 
       - name: Send a reminder only when it is due
         run: szs-hub publish-reminder
@@ -67,5 +68,4 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: .schedule-state
-          key: schedule-state-${{ github.run_id }}-${{ github.run_attempt }}
-
+          key: schedule-state-v2-${{ github.run_id }}-${{ github.run_attempt }}

@@ -17,6 +17,7 @@ permissions:
 
 concurrency:
   group: szs-schedule-state
+  queue: max
   cancel-in-progress: false
 
 jobs:
@@ -52,9 +53,9 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .schedule-state
-          key: schedule-state-${{ github.run_id }}-${{ github.run_attempt }}
+          key: schedule-state-v2-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            schedule-state-
+            schedule-state-v2-
 
       - name: Compare and update Telegram when useful
         run: szs-hub publish-dispatched
@@ -63,4 +64,4 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: .schedule-state
-          key: schedule-state-${{ github.run_id }}-${{ github.run_attempt }}
+          key: schedule-state-v2-${{ github.run_id }}-${{ github.run_attempt }}

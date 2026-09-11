@@ -9,7 +9,7 @@ on:
         default: false
         type: boolean
       probe_schema:
-        description: Print a redacted SPbGASU response shape and do not contact GitHub
+        description: Print a redacted SPbGASU response shape and do not dispatch or send
         required: false
         default: false
         type: boolean
@@ -44,6 +44,7 @@ jobs:
           ref: main
           token: ${{ secrets.BRIDGE_GH_TOKEN }}
           github-server-url: https://github.com
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v6

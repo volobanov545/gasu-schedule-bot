@@ -11,6 +11,9 @@ from szs_hub.schedule.ci import (
     encode_schedule_envelope,
     load_delivery_state,
     overlapping_changes,
+    render_changes_fallback,
+    render_digest_fallback,
+    render_rich_changes,
     render_rich_digest,
     save_delivery_state,
     should_publish_digest,
@@ -191,12 +194,74 @@ def test_no_transition_reminder_after_last_class() -> None:
     )
 
 
+def test_reminders_hide_full_group_key_but_keep_a_real_subgroup() -> None:
+    full_group_lesson = Lesson(
+        day=date(2026, 9, 11),
+        starts_at=time(10, 45),
+        ends_at=time(12, 15),
+        subject="Общая лекция",
+        subgroup="3-СУЗСс-3",
+        source_id="full-group",
+    )
+    subgroup_lesson = Lesson(
+        day=date(2026, 9, 11),
+        starts_at=time(10, 45),
+        ends_at=time(12, 15),
+        subject="Лабораторная",
+        subgroup="1 подгруппа",
+        source_id="subgroup",
+    )
+    envelope = _envelope(date(2026, 9, 7), full_group_lesson, subgroup_lesson)
+
+    reminder = due_reminder(
+        envelope,
+        local_now=datetime(2026, 9, 11, 8, 45, tzinfo=UTC),
+        sent_markers=(),
+    )
+
+    assert reminder is not None
+    _, text = reminder
+    assert "3-СУЗСс-3" not in text
+    assert "1 подгруппа" in text
+
+
+def test_current_schedule_renderers_never_add_a_source_link() -> None:
+    old = _lesson(date(2026, 9, 11), room="312")
+    new = _lesson(date(2026, 9, 11), room="407")
+    previous = _envelope(date(2026, 9, 7), old)
+    current = _envelope(date(2026, 9, 7), new)
+    changes = overlapping_changes(previous, current, today=date(2026, 9, 11))
+    reminder = due_reminder(
+        current,
+        local_now=datetime(2026, 9, 11, 8, 45, tzinfo=UTC),
+        sent_markers=(),
+    )
+
+    assert reminder is not None
+    rendered_messages = (
+        render_rich_digest(
+            current,
+            local_now=datetime(2026, 9, 11, 8, 45, tzinfo=UTC),
+        ),
+        render_digest_fallback(
+            current,
+            local_now=datetime(2026, 9, 11, 8, 45, tzinfo=UTC),
+        ),
+        render_rich_changes(changes, fetched_at=current.fetched_at),
+        render_changes_fallback(changes),
+        reminder[1],
+    )
+    for rendered in rendered_messages:
+        assert "Источник" not in rendered
+        assert "rasp.spbgasu.ru" not in rendered
+
 def test_delivery_state_survives_ci_cache_and_digest_is_once_per_day(tmp_path) -> None:
     path = tmp_path / "state" / "schedule.json"
     envelope = _envelope(date(2026, 8, 31), force_digest=False)
     state = ScheduleDeliveryState(
         previous=envelope,
         last_digest_date=date(2026, 9, 1),
+        sent_reminders=("first:2026-09-01:10:45:00", "next:2026-09-01:12:15:00"),
     )
 
     save_delivery_state(path, state)

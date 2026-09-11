@@ -10,6 +10,8 @@ from szs_hub.schedule.spbgasu import (
     SpbGasuClient,
     SpbGasuGroupNotFoundError,
     SpbGasuProtocolError,
+    WeeklyLesson,
+    WeeklySchedule,
     WeekParity,
     materialize_week,
     parity_for_week,
@@ -110,6 +112,141 @@ def test_component_html_uses_published_dates_instead_of_week_template() -> None:
     assert lessons[0].starts_at == time(10, 45)
     assert lessons[0].subject == "Геодезия"
     assert lessons[0].room == "407"
+
+
+@pytest.mark.parametrize(
+    "malformed_day",
+    [
+        """
+        <div class="days">
+          <div class="week_day"><div>СБ</div><div class="date">12/09/2026</div></div>
+          <div class="lessons"><div class="lesson">
+            <div class="day_name"><b>3 пара</b></div>
+            <div class="lesson_block">
+              <div><span class="lesson-name">Механика (л.)</span></div>
+              <div>3-СУЗСс-3</div><div>101/1</div><div>Петров П. П.</div>
+            </div>
+          </div></div>
+        </div>
+        """,
+        """
+        <div class="days">
+          <div class="week_day"><div>СБ</div><div class="date">12.09.2026</div></div>
+          <div class="lessons"><div class="lesson">
+            <div class="day_name"><b>третья пара</b></div>
+            <div class="lesson_block">
+              <div><span class="lesson-name">Механика (л.)</span></div>
+              <div>3-СУЗСс-3</div><div>101/1</div><div>Петров П. П.</div>
+            </div>
+          </div></div>
+        </div>
+        """,
+        """
+        <div class="days">
+          <div class="week_day"><div>СБ</div><div class="date">12.09.2026</div></div>
+          <div class="lessons"><div class="lesson">
+            <div class="day_name"><b>3 пара</b></div>
+            <div class="lesson_block">
+              <div>Механика (л.)</div>
+              <div>3-СУЗСс-3</div><div>101/1</div><div>Петров П. П.</div>
+            </div>
+          </div></div>
+        </div>
+        """,
+    ],
+    ids=("invalid-date", "invalid-slot", "missing-subject"),
+)
+def test_component_html_fails_closed_on_partially_malformed_schedule(
+    malformed_day: str,
+) -> None:
+    html = component_html().replace(
+        "      </div>\n    </div>",
+        f"{malformed_day}\n      </div>\n    </div>",
+    )
+
+    with pytest.raises(SpbGasuProtocolError):
+        parse_weekly_schedule(html, group_key="3-СУЗСс-3")
+
+
+def test_nonempty_invalid_source_date_fails_closed() -> None:
+    schedule = WeeklySchedule(
+        group_key="3-СУЗСс-3",
+        lessons=(
+            WeeklyLesson(
+                weekday=4,
+                slot=2,
+                parity=WeekParity.DENOMINATOR,
+                subject="Геодезия (л.)",
+                group="3-СУЗСс-3",
+                auditorium="407/1",
+                professor=None,
+                source_date="11.09.26",
+            ),
+        ),
+    )
+
+    with pytest.raises(SpbGasuProtocolError):
+        materialize_week(
+            schedule,
+            monday=date(2026, 9, 7),
+            parity=WeekParity.DENOMINATOR,
+        )
+
+
+def test_component_html_supports_two_weeks_and_multiple_lesson_blocks() -> None:
+    html = """
+    <div class="owl-carousel">
+      <div class="item" data-hash="week_2">
+        <div class="time">Неделя №2: Знаменатель</div>
+        <div class="predmets"><div class="days">
+          <div class="week_day"><div>ПТ</div><div class="date">11.09.2026</div></div>
+          <div class="lessons"><div class="lesson">
+            <div class="day_name"><b>2 пара</b><br>10:45-12:15</div>
+            <div class="lesson_block">
+              <div><span class="lesson-name">Геодезия (л.)</span></div>
+              <div>Подгруппа 1</div><div>407/1</div><div>Иванов И. И.</div>
+            </div>
+            <div class="lesson_block">
+              <div><span class="lesson-name">Геодезия (пр.)</span></div>
+              <div>Подгруппа 2</div><div>408/1</div><div>Петров П. П.</div>
+            </div>
+          </div></div>
+        </div></div>
+      </div>
+      <div class="item" data-hash="week_3">
+        <div class="time">Неделя №3: Числитель</div>
+        <div class="predmets"><div class="days">
+          <div class="week_day"><div>ПН</div><div class="date">14.09.2026</div></div>
+          <div class="lessons"><div class="lesson">
+            <div class="day_name"><b>1 пара</b><br>09:00-10:30</div>
+            <div class="lesson_block">
+              <div><span class="lesson-name">Механика (л.)</span></div>
+              <div>3-СУЗСс-3</div><div>101/2</div><div>Сидоров С. С.</div>
+            </div>
+          </div></div>
+        </div></div>
+      </div>
+    </div>
+    """
+    schedule = parse_weekly_schedule(html, group_key="3-СУЗСс-3")
+
+    first_week = materialize_week(
+        schedule,
+        monday=date(2026, 9, 7),
+        parity=WeekParity.DENOMINATOR,
+    )
+    second_week = materialize_week(
+        schedule,
+        monday=date(2026, 9, 14),
+        parity=WeekParity.NUMERATOR,
+    )
+
+    assert len(first_week) == 2
+    assert {lesson.subgroup for lesson in first_week} == {"Подгруппа 1", "Подгруппа 2"}
+    assert len({lesson.source_id for lesson in first_week}) == 2
+    assert [(lesson.day, lesson.subject) for lesson in second_week] == [
+        (date(2026, 9, 14), "Механика")
+    ]
 
 
 def test_bootstrap_extracts_week_number_and_groups() -> None:

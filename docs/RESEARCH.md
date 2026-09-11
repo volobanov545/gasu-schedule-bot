@@ -66,24 +66,47 @@ The current [Bot API changelog](https://core.telegram.org/bots/api-changelog) id
 - The university's official [schedule page](https://www.spbgasu.ru/students/raspisanie/) links to an embedded all-forms page, which in turn identifies `https://rasp.spbgasu.ru/` as the direct schedule application.
 - The official 2025 freshman guide describes public lookup by group number and states that the current week appears automatically; this is evidence that student credentials may not be necessary for the ordinary group timetable.
 - On 2026-08-29, `rasp.spbgasu.ru` resolved to `92.255.65.12`, and TCP/443 succeeded from the local machine, but both HTTP and HTTPS application requests timed out without response. The route used a tunnel interface. This is a negative result, not evidence that the service is permanently unavailable.
-- The requested Chrome connection was unavailable, so JavaScript bundles and Network/XHR calls have not yet been observed in the user's Chrome session. Endpoint selection remains provisional until that experiment or a reproducible public HTTP request succeeds.
+- On 2026-09-11 the current first-party JavaScript request function and its Bitrix action
+  were captured through the available browser flow, then reproduced on a Russian GitVerse
+  runner. Endpoint selection is therefore based on a successful real response, not only a
+  fixture or inferred URL.
 
 ### Confirmed public request contract
 
-The ordinary full-time group client calls:
+The old component-local JSON GET below is retained only as historical evidence; by
+11.09.2026 it returned an empty skeleton and could no longer drive publication. The
+current first-party page calls:
 
 ```http
-GET https://rasp.spbgasu.ru/local/components/gasu/raspisanie.csv/ajax.php
-    ?SERACH=<group identifier>
-    &FILTER=GROUPS
-    &GROUP=
-    &SELECT=*
-Accept: application/json
+POST https://rasp.spbgasu.ru/bitrix/services/main/ajax.php
+    ?mode=class
+    &c=gasu:raspisanie.csv
+    &action=getRasp
+Content-Type: application/x-www-form-urlencoded
+
+search_params[SEARCH]=<group identifier>
+search_params[FILTER]=GROUPS
+search_params[GROUP]=
+search_params[SELECT]=*
+search_params[ONLY_SESSIA]=false
 ```
 
-`SERACH` is the source's real misspelling and must not be corrected. A validly formed unknown group returns `[]` without a login redirect. The current response is wrapped in `R`; older first-party JavaScript expected the day mapping at the root, so the parser accepts exactly those two shapes. The payload contains weekdays → lesson slots → `числ.`/`знам.` entries with `DATE`, `LESSON`, `GROUP`, `AUDITORIUM`, and `PROFESSOR`.
+The first response may contain `invalid_csrf` plus a replacement token in
+`errors[].customData.csrf`; repeating the same public request with `sessid=<token>` returns
+`data.html`. The HTML contains dated week items, day blocks, numbered lesson slots, one or
+more lesson blocks, subject, group/subgroup, room/building, and professor. No student
+account, password, or private portal cookie is used. Professor names are discarded before
+the envelope leaves GitVerse.
 
-The page embeds `window.GROUPS` and filters group suggestions locally after three characters; selecting a group triggers the GET. It also embeds `window.NUMBER_WEEK`; day and numerator/denominator switching are client-side and should not issue more requests. The bot therefore fetches one full weekly template per group, caches it for at least five minutes, and materializes dates locally from the official current week number.
+The page embeds `window.GROUPS` and filters group suggestions locally after three
+characters; selecting a group triggers the component POST. It also embeds
+`window.NUMBER_WEEK` as a legacy parity fallback. The bot caches one bounded group fetch
+for at least five minutes and prefers the actual dates published in the component HTML.
+
+The production parser still accepts the former root/`R` JSON fixture for backward
+compatibility, but the real runtime path uses published ISO dates extracted from the
+component HTML. A GitVerse no-send probe on 11.09.2026 matched `3-СУЗСс-3`, parsed 42
+lessons, and observed public dates from 02.09 through 25.09 including the current day.
 
 Important failure evidence:
 
