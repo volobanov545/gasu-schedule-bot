@@ -453,8 +453,16 @@ async def publish_dispatched(
                 chat_id=chat_id,
                 topic_id=topic_id,
                 message_id=calendar_message_id,
-                rich_html=render_rich_digest(envelope, local_now=local_now),
-                fallback_html=render_digest_fallback(envelope, local_now=local_now),
+                rich_html=render_rich_digest(
+                    envelope,
+                    local_now=local_now,
+                    calendar_feed_url=settings.schedule_calendar_url,
+                ),
+                fallback_html=render_digest_fallback(
+                    envelope,
+                    local_now=local_now,
+                    calendar_feed_url=settings.schedule_calendar_url,
+                ),
             )
             if calendar_changed:
                 sent.append(calendar_message_id)

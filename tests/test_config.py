@@ -84,6 +84,12 @@ def test_non_local_upstreams_require_https() -> None:
         Settings(app_env="staging", spbgasu_base_url="http://schedule.test", _env_file=None)
     with pytest.raises(ValidationError, match="ai_base_url.*HTTPS"):
         Settings(app_env="production", ai_base_url="http://ai.test", _env_file=None)
+    with pytest.raises(ValidationError, match="schedule_calendar_url.*HTTPS"):
+        Settings(
+            app_env="production",
+            schedule_calendar_url="http://calendar.test/feed.ics",
+            _env_file=None,
+        )
 
 
 def test_local_development_can_use_cleartext_test_upstreams() -> None:

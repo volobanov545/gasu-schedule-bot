@@ -106,6 +106,26 @@ def test_rich_digest_uses_article_primitives_and_escapes_source_data() -> None:
     assert "Иванов Иван Иванович" in rendered
 
 
+def test_calendar_card_links_to_the_live_phone_feed() -> None:
+    envelope = _envelope(date(2026, 9, 14), _lesson(date(2026, 9, 14)))
+    url = "https://volobanov545.github.io/gasu-schedule-bot/calendar.ics"
+
+    rich = render_rich_digest(
+        envelope,
+        local_now=datetime(2026, 9, 14, 8, tzinfo=UTC),
+        calendar_feed_url=url,
+    )
+    fallback = render_digest_fallback(
+        envelope,
+        local_now=datetime(2026, 9, 14, 8, tzinfo=UTC),
+        calendar_feed_url=url,
+    )
+
+    assert "Добавить в календарь телефона" in rich
+    assert url in rich
+    assert url in fallback
+
+
 def test_nighttime_forced_digest_keeps_the_upcoming_current_day() -> None:
     envelope = _envelope(
         date(2026, 9, 7),

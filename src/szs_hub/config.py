@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     sqlite_wal_backport_confirmed: bool = False
     schedule_stale_after_minutes: int = Field(default=360, ge=15, le=10_080)
     schedule_sync_minutes: int = Field(default=15, ge=5, le=240)
+    schedule_calendar_url: str | None = None
     runtime_heartbeat_stale_minutes: int = Field(default=5, ge=2, le=60)
     telegram_probe_interval_minutes: int = Field(default=15, ge=5, le=240)
     telegram_probe_stale_minutes: int = Field(default=30, ge=10, le=480)
@@ -131,6 +132,8 @@ class Settings(BaseSettings):
 
         if self.app_env is not AppEnvironment.LOCAL:
             _require_https("spbgasu_base_url", self.spbgasu_base_url)
+            if self.schedule_calendar_url is not None:
+                _require_https("schedule_calendar_url", self.schedule_calendar_url)
             if self.ai_base_url is not None:
                 _require_https("ai_base_url", self.ai_base_url)
             if self.ai_enabled and self.ai_max_retries:

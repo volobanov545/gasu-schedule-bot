@@ -641,3 +641,8 @@ def test_ci_bridge_workflows_keep_telegram_token_out_of_gitverse() -> None:
         assert "schedule-state-v3-" in state_consumer
     assert "SCHEDULE_CALENDAR_PATH" in receiver
     assert "actions/upload-artifact@v4" in receiver
+    assert "actions/configure-pages@v6" in receiver
+    assert "actions/upload-pages-artifact@v4" in receiver
+    assert "actions/deploy-pages@v4" in receiver
+    assert "pages: write" in receiver
+    assert "volobanov545.github.io/gasu-schedule-bot/calendar.ics" in receiver

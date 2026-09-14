@@ -194,6 +194,7 @@ def render_rich_digest(
     envelope: ScheduleEnvelope,
     *,
     local_now: datetime,
+    calendar_feed_url: str | None = None,
 ) -> str:
     """Render one mobile-first calendar with independently expandable days."""
 
@@ -226,6 +227,10 @@ def render_rich_digest(
                 f"<details{open_today}><summary>{_day_summary_line(day, lessons, local_now.date())}"
                 f"</summary>{_rich_lesson_list(lessons, group_key=envelope.group_key)}</details>"
             )
+    if calendar_feed_url:
+        blocks.append(
+            f'<p><a href="{escape(calendar_feed_url)}">Добавить в календарь телефона</a></p>'
+        )
     blocks.append(f"<footer>Обновлено {fetched_local:%d.%m · %H:%M} МСК</footer>")
     return "".join(blocks)
 
@@ -234,10 +239,17 @@ def render_digest_fallback(
     envelope: ScheduleEnvelope,
     *,
     local_now: datetime,
+    calendar_feed_url: str | None = None,
 ) -> str:
     primary_day, relative_label = _digest_target(local_now)
     lessons = _lessons_on(envelope.lessons, primary_day)
-    return render_day_card(primary_day, lessons, relative_label=relative_label)
+    text = render_day_card(primary_day, lessons, relative_label=relative_label)
+    if calendar_feed_url:
+        text += (
+            f'\n\n<a href="{escape(calendar_feed_url)}">'
+            "Добавить в календарь телефона</a>"
+        )
+    return text
 
 
 def render_evening_summary(

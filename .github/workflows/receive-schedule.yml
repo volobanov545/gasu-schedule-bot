@@ -33,6 +33,7 @@ jobs:
       SCHEDULE_GROUP: ${{ inputs.group }}
       SCHEDULE_STATE_PATH: .schedule-state/state.json
       SCHEDULE_CALENDAR_PATH: .calendar-output/calendar.ics
+      SCHEDULE_CALENDAR_URL: https://volobanov545.github.io/gasu-schedule-bot/calendar.ics
       FEATURE_PROFILE: schedule_only
       TELEGRAM_MODE: outbound_only
       AI_KILL_SWITCH: "true"
@@ -68,8 +69,32 @@ jobs:
           path: .calendar-output/calendar.ics
           retention-days: 7
 
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v6
+
+      - name: Package the live calendar feed
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: .calendar-output
+
       - name: Save comparison state
         uses: actions/cache/save@v6
         with:
           path: .schedule-state
           key: schedule-state-v3-${{ github.run_id }}-${{ github.run_attempt }}
+
+  deploy-calendar:
+    needs: send
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publish the calendar feed
+        id: deployment
+        uses: actions/deploy-pages@v4
