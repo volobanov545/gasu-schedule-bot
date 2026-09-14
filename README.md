@@ -1,20 +1,22 @@
 # SZS Hub
 
 SZS Hub currently defaults to a deliberately small Telegram feature: it reads the public
-SPbGASU schedule for one configured group and publishes evening cards and schedule changes
-to one configured Telegram topic. It does not receive chat updates or process students'
-messages, files, reactions, or Telegram user IDs in the default `schedule_only` profile.
+SPbGASU schedule for one configured group, maintains one pinned two-week calendar, publishes
+short evening/change notices, and sends lesson reminders to one configured Telegram topic.
+It does not receive chat updates or process students' messages, files, reactions, or
+Telegram user IDs in the default `schedule_only` profile.
 
 The selected deployment is a two-CI bridge, not a VPS or an always-on home computer.
 A Russian GitVerse runner fetches the public schedule and dispatches only a bounded,
 validated two-week snapshot to a narrow GitHub Actions receiver. GitHub holds the
-Telegram token, renders the card, sends it, and schedules class reminders. Setup and bridge status are in
+Telegram token, renders or edits the calendar, sends notices, and schedules class reminders.
+It also produces a standards-based iCalendar file for a future phone-calendar subscription.
+Setup and bridge status are in
 [docs/GITHUB_ACTIONS_RU.md](docs/GITHUB_ACTIONS_RU.md).
 
-The runnable modular monolith, durable storage, schedule/attendance/archive flows, and
-deployment artifacts are implemented and locally tested. Production actions remain
-intentionally blocked until the remaining internal release gates, real Telegram/VPS
-staging checks, security review, and explicit owner configuration are complete.
+The narrow schedule-only CI path is live. The broader modular monolith,
+schedule/attendance/archive flows, and VPS deployment remain dormant until their separate
+release gates and staging checks are complete.
 
 ## Non-negotiable constraints
 

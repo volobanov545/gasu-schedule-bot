@@ -32,6 +32,7 @@ jobs:
       SCHEDULE_TEXT_B64: ${{ inputs.text_b64 }}
       SCHEDULE_GROUP: ${{ inputs.group }}
       SCHEDULE_STATE_PATH: .schedule-state/state.json
+      SCHEDULE_CALENDAR_PATH: .calendar-output/calendar.ics
       FEATURE_PROFILE: schedule_only
       TELEGRAM_MODE: outbound_only
       AI_KILL_SWITCH: "true"
@@ -53,15 +54,22 @@ jobs:
         uses: actions/cache/restore@v6
         with:
           path: .schedule-state
-          key: schedule-state-v2-${{ github.run_id }}-${{ github.run_attempt }}
+          key: schedule-state-v3-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            schedule-state-v2-
+            schedule-state-v3-
 
       - name: Compare and update Telegram when useful
         run: szs-hub publish-dispatched
+
+      - name: Preserve the generated phone calendar
+        uses: actions/upload-artifact@v4
+        with:
+          name: phone-calendar
+          path: .calendar-output/calendar.ics
+          retention-days: 7
 
       - name: Save comparison state
         uses: actions/cache/save@v6
         with:
           path: .schedule-state
-          key: schedule-state-v2-${{ github.run_id }}-${{ github.run_attempt }}
+          key: schedule-state-v3-${{ github.run_id }}-${{ github.run_attempt }}

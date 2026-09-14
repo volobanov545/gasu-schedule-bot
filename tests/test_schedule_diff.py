@@ -61,6 +61,15 @@ def test_source_id_survives_subject_rename() -> None:
     assert [change.kind for change in changes] == [ChangeKind.SUBJECT]
 
 
+def test_teacher_initial_spacing_is_not_a_schedule_change() -> None:
+    changes = diff_schedules(
+        snapshot(lesson(teacher="Иванов И. И.", source_id="lesson-1")),
+        snapshot(lesson(teacher="Иванов И.И.", source_id="lesson-1")),
+    )
+
+    assert changes == ()
+
+
 def test_snapshot_hash_is_order_independent() -> None:
     first = lesson()
     second = lesson(subject="Геодезия", starts_at=time(11, 40), ends_at=time(13, 10))
@@ -71,4 +80,3 @@ def test_snapshot_hash_is_order_independent() -> None:
 def test_diff_rejects_different_groups() -> None:
     with pytest.raises(ValueError, match="different groups"):
         diff_schedules(snapshot(group="A"), snapshot(group="B"))
-

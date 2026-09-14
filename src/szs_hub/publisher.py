@@ -6,7 +6,7 @@ import base64
 import binascii
 import re
 from collections.abc import Callable
-from dataclasses import replace
+from contextlib import suppress
 from datetime import datetime, timedelta, tzinfo
 from datetime import timezone as fixed_timezone
 from pathlib import Path
@@ -21,6 +21,7 @@ from pydantic import SecretStr
 
 from szs_hub.config import Settings
 from szs_hub.domain.schedule import Lesson
+from szs_hub.schedule.calendar import render_icalendar
 from szs_hub.schedule.ci import (
     ScheduleDeliveryState,
     ScheduleEnvelope,
@@ -32,6 +33,7 @@ from szs_hub.schedule.ci import (
     overlapping_changes,
     render_changes_fallback,
     render_digest_fallback,
+    render_evening_summary,
     render_rich_changes,
     render_rich_digest,
     save_delivery_state,
@@ -68,6 +70,17 @@ class RichScheduleDestination(ScheduleDestination, Protocol):
         fallback_html: str,
         silent: bool,
     ) -> int: ...
+
+    async def edit_rich(
+        self,
+        *,
+        chat_id: int,
+        message_id: int,
+        rich_html: str,
+        fallback_html: str,
+    ) -> int: ...
+
+    async def pin_message(self, *, chat_id: int, message_id: int) -> None: ...
 
 
 class ScheduleBridge(Protocol):
@@ -141,6 +154,58 @@ class TelegramBotApiDestination:
             text=fallback_html,
             silent=silent,
         )
+
+    async def edit_rich(
+        self,
+        *,
+        chat_id: int,
+        message_id: int,
+        rich_html: str,
+        fallback_html: str,
+    ) -> int:
+        response = await self._client.post(
+            f"{self._base_url}/editMessageText",
+            json={
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "rich_message": {"html": rich_html, "skip_entity_detection": True},
+            },
+        )
+        result = _telegram_message_id(response)
+        if result is not None:
+            return result
+        if _telegram_not_modified(response):
+            return message_id
+        if response.status_code != 400:
+            raise _telegram_delivery_error(response)
+        classic = await self._client.post(
+            f"{self._base_url}/editMessageText",
+            json={
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "text": fallback_html,
+                "parse_mode": "HTML",
+                "disable_web_page_preview": True,
+            },
+        )
+        result = _telegram_message_id(classic)
+        if result is not None:
+            return result
+        if _telegram_not_modified(classic):
+            return message_id
+        raise _telegram_delivery_error(classic)
+
+    async def pin_message(self, *, chat_id: int, message_id: int) -> None:
+        response = await self._client.post(
+            f"{self._base_url}/pinChatMessage",
+            json={
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "disable_notification": True,
+            },
+        )
+        if not response.is_success:
+            raise _telegram_delivery_error(response)
 
     async def _send_classic(
         self,
@@ -326,6 +391,7 @@ async def publish_dispatched(
     group_key: str,
     destination: RichScheduleDestination | None = None,
     state_path: Path = Path(".schedule-state/state.json"),
+    calendar_path: Path | None = None,
     clock: Callable[[], datetime] = utc_now,
 ) -> tuple[int, ...]:
     """Compare, format and publish a validated GitVerse schedule envelope."""
@@ -364,6 +430,10 @@ async def publish_dispatched(
         if state.previous is not None and envelope.fetched_at <= state.previous.fetched_at:
             # GitVerse manual and scheduled runs can finish out of order. Never
             # regress the comparison baseline or emit reverse/duplicate changes.
+            # Still refresh the build artifact from the newest known snapshot so
+            # a delayed run cannot leave the phone-calendar output missing.
+            if calendar_path is not None:
+                _write_calendar(calendar_path, render_icalendar(state.previous))
             return ()
         # A forced digest is an operator-requested corrective snapshot. Treat it as
         # a clean rebaseline so a previously empty/broken cache cannot manufacture
@@ -375,6 +445,20 @@ async def publish_dispatched(
         )
         sent: list[int] = []
 
+        publish_digest = should_publish_digest(state, envelope, local_now=local_now)
+        calendar_message_id = state.calendar_message_id
+        if changes or publish_digest:
+            calendar_message_id, calendar_changed = await _upsert_calendar(
+                schedule_destination,
+                chat_id=chat_id,
+                topic_id=topic_id,
+                message_id=calendar_message_id,
+                rich_html=render_rich_digest(envelope, local_now=local_now),
+                fallback_html=render_digest_fallback(envelope, local_now=local_now),
+            )
+            if calendar_changed:
+                sent.append(calendar_message_id)
+
         if changes:
             sent.append(
                 await schedule_destination.send_rich(
@@ -382,30 +466,33 @@ async def publish_dispatched(
                     topic_id=topic_id,
                     rich_html=render_rich_changes(
                         changes,
-                        fetched_at=envelope.fetched_at,
+                        fetched_at=envelope.fetched_at.astimezone(local_now.tzinfo),
                     ),
                     fallback_html=render_changes_fallback(changes),
                     silent=not changes_are_urgent(changes, today=local_now.date()),
                 )
             )
 
-        publish_digest = should_publish_digest(state, envelope, local_now=local_now)
-        if publish_digest:
+        if publish_digest and not envelope.force_digest:
+            calendar_url = _telegram_topic_message_url(
+                chat_id=chat_id,
+                topic_id=topic_id,
+                message_id=calendar_message_id,
+            )
             sent.append(
-                await schedule_destination.send_rich(
+                await schedule_destination.send(
                     chat_id=chat_id,
                     topic_id=topic_id,
-                    rich_html=render_rich_digest(
+                    text=render_evening_summary(
                         envelope,
                         local_now=local_now,
+                        calendar_url=calendar_url,
                     ),
-                    fallback_html=render_digest_fallback(
-                        envelope,
-                        local_now=local_now,
-                    ),
-                    silent=False,
                 )
             )
+
+        if calendar_path is not None:
+            _write_calendar(calendar_path, render_icalendar(envelope))
 
         save_delivery_state(
             state_path,
@@ -413,6 +500,7 @@ async def publish_dispatched(
                 previous=envelope,
                 last_digest_date=local_now.date() if publish_digest else state.last_digest_date,
                 sent_reminders=state.sent_reminders,
+                calendar_message_id=calendar_message_id,
             ),
         )
         return tuple(sent)
@@ -463,6 +551,7 @@ async def publish_due_reminder(
                 previous=state.previous,
                 last_digest_date=state.last_digest_date,
                 sent_reminders=(*state.sent_reminders, marker)[-100:],
+                calendar_message_id=state.calendar_message_id,
             ),
         )
         return (message_id,)
@@ -495,10 +584,7 @@ async def build_schedule_envelope(
             current_monday=current_monday,
             target_monday=monday,
         )
-        lessons.extend(
-            replace(lesson, teacher=None)
-            for lesson in materialize_week(weekly, monday=monday, parity=parity)
-        )
+        lessons.extend(materialize_week(weekly, monday=monday, parity=parity))
     return ScheduleEnvelope(
         group_key=group_key,
         fetched_at=local_now,
@@ -557,7 +643,7 @@ async def build_tomorrow_card(
         target_monday=target_monday,
     )
     lessons = tuple(
-        replace(lesson, teacher=None)
+        lesson
         for lesson in materialize_week(weekly, monday=target_monday, parity=parity)
         if lesson.day == tomorrow
     )
@@ -569,6 +655,56 @@ async def _close_source(source: object) -> None:
     close = getattr(source, "aclose", None)
     if close is not None:
         await close()
+
+
+async def _upsert_calendar(
+    destination: RichScheduleDestination,
+    *,
+    chat_id: int,
+    topic_id: int,
+    message_id: int | None,
+    rich_html: str,
+    fallback_html: str,
+) -> tuple[int, bool]:
+    edit = getattr(destination, "edit_rich", None)
+    if message_id is not None and edit is not None:
+        try:
+            edited = await edit(
+                chat_id=chat_id,
+                message_id=message_id,
+                rich_html=rich_html,
+                fallback_html=fallback_html,
+            )
+            return edited, True
+        except RuntimeError:
+            # A lost CI cache or deleted old card must not prevent recovery.
+            pass
+    created = await destination.send_rich(
+        chat_id=chat_id,
+        topic_id=topic_id,
+        rich_html=rich_html,
+        fallback_html=fallback_html,
+        silent=True,
+    )
+    pin = getattr(destination, "pin_message", None)
+    if pin is not None:
+        with suppress(RuntimeError):
+            await pin(chat_id=chat_id, message_id=created)
+    return created, True
+
+
+def _telegram_topic_message_url(
+    *, chat_id: int, topic_id: int, message_id: int | None
+) -> str | None:
+    rendered = str(chat_id)
+    if message_id is None or not rendered.startswith("-100"):
+        return None
+    return f"https://t.me/c/{rendered[4:]}/{topic_id}/{message_id}"
+
+
+def _write_calendar(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8", newline="")
 
 
 def _decode_legacy_card(value: str) -> str | None:
@@ -605,6 +741,19 @@ def _telegram_delivery_error(response: httpx.Response) -> RuntimeError:
         pass
     return RuntimeError(
         f"Telegram delivery failed (HTTP {response.status_code}: {description})"
+    )
+
+
+def _telegram_not_modified(response: httpx.Response) -> bool:
+    try:
+        payload = response.json()
+    except ValueError:
+        return False
+    description = payload.get("description") if isinstance(payload, dict) else None
+    return (
+        response.status_code == 400
+        and isinstance(description, str)
+        and "message is not modified" in description.casefold()
     )
 
 

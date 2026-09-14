@@ -19,6 +19,12 @@ def normalize_text(value: str | None) -> str:
     return _WHITESPACE.sub(" ", value).strip().casefold().replace("ё", "е")
 
 
+def normalize_teacher(value: str | None) -> str:
+    """Ignore presentation-only spacing and dots in published initials."""
+
+    return normalize_text(value).replace(".", "").replace(" ", "")
+
+
 @dataclass(frozen=True, slots=True)
 class Lesson:
     day: date
@@ -49,7 +55,7 @@ class Lesson:
             "ends_at": self.ends_at.isoformat(),
             "subject": self.normalized_subject,
             "lesson_type": normalize_text(self.lesson_type),
-            "teacher": normalize_text(self.teacher),
+            "teacher": normalize_teacher(self.teacher),
             "room": normalize_text(self.room),
             "building": normalize_text(self.building),
             "subgroup": normalize_text(self.subgroup),
@@ -133,7 +139,7 @@ def diff_schedules(
             changes.append(ScheduleChange(ChangeKind.ROOM, old, new))
         if normalize_text(old.building) != normalize_text(new.building):
             changes.append(ScheduleChange(ChangeKind.BUILDING, old, new))
-        if normalize_text(old.teacher) != normalize_text(new.teacher):
+        if normalize_teacher(old.teacher) != normalize_teacher(new.teacher):
             changes.append(ScheduleChange(ChangeKind.TEACHER, old, new))
         if normalize_text(old.lesson_type) != normalize_text(new.lesson_type):
             changes.append(ScheduleChange(ChangeKind.LESSON_TYPE, old, new))

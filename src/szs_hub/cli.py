@@ -232,6 +232,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                             "SCHEDULE_STATE_PATH", ".schedule-state/state.json"
                         )
                     ),
+                    calendar_path=(
+                        Path(os.environ["SCHEDULE_CALENDAR_PATH"])
+                        if os.environ.get("SCHEDULE_CALENDAR_PATH")
+                        else None
+                    ),
                 )
             )
         except Exception as exc:

@@ -65,6 +65,8 @@ class FakeDestination:
         self.sent: tuple[int, int, str] | None = None
         self.sent_calls: list[tuple[int, int, str]] = []
         self.rich_sent: list[tuple[int, int, str, str, bool]] = []
+        self.rich_edited: list[tuple[int, int, str, str]] = []
+        self.pinned: list[tuple[int, int]] = []
 
     async def send(self, *, chat_id: int, topic_id: int, text: str) -> int:
         self.sent = (chat_id, topic_id, text)
@@ -82,6 +84,20 @@ class FakeDestination:
     ) -> int:
         self.rich_sent.append((chat_id, topic_id, rich_html, fallback_html, silent))
         return 78
+
+    async def edit_rich(
+        self,
+        *,
+        chat_id: int,
+        message_id: int,
+        rich_html: str,
+        fallback_html: str,
+    ) -> int:
+        self.rich_edited.append((chat_id, message_id, rich_html, fallback_html))
+        return message_id
+
+    async def pin_message(self, *, chat_id: int, message_id: int) -> None:
+        self.pinned.append((chat_id, message_id))
 
 
 class EmptySource:
@@ -161,7 +177,7 @@ async def test_github_bridge_accepts_successful_dispatch(status_code: int) -> No
 
 
 @pytest.mark.asyncio
-async def test_ci_publisher_sends_minimal_tomorrow_card_without_teacher() -> None:
+async def test_ci_publisher_sends_tomorrow_card_with_teacher() -> None:
     destination = FakeDestination()
     settings = Settings(
         telegram_bot_token=SecretStr("123456:token"),
@@ -183,7 +199,7 @@ async def test_ci_publisher_sends_minimal_tomorrow_card_without_teacher() -> Non
     chat_id, topic_id, text = destination.sent
     assert (chat_id, topic_id) == (-1001, 42)
     assert "Геодезия" in text
-    assert "Иванов" not in text
+    assert "Иванов И. И." in text
     assert "Источник" not in text
     assert "rasp.spbgasu.ru" not in text
 
@@ -222,7 +238,7 @@ async def test_gitverse_bridge_dispatches_card_without_telegram_secret() -> None
     envelope = decode_schedule_envelope(text_b64)
     assert envelope.group_key == "СЗС-3"
     assert [lesson.subject for lesson in envelope.lessons] == ["Геодезия"]
-    assert all(lesson.teacher is None for lesson in envelope.lessons)
+    assert [lesson.teacher for lesson in envelope.lessons] == ["Иванов И. И."]
 
 
 @pytest.mark.asyncio
@@ -315,8 +331,11 @@ async def test_github_receiver_sends_forced_rich_digest_and_persists_state(
     assert message_ids == (78,)
     assert state_path.is_file()
     assert len(destination.rich_sent) == 1
-    assert "<h1>📅 Сегодня" in destination.rich_sent[0][2]
-    assert "<details><summary>Неделя" in destination.rich_sent[0][2]
+    assert "<h1>Расписание" in destination.rich_sent[0][2]
+    assert "<details" in destination.rich_sent[0][2]
+    assert "Иванов И. И." in destination.rich_sent[0][2]
+    assert destination.pinned == [(-1001, 78)]
+    assert load_delivery_state(state_path).calendar_message_id == 78
     assert all(
         "Источник" not in rendered and "rasp.spbgasu.ru" not in rendered
         for rendered in destination.rich_sent[0][2:4]
@@ -348,13 +367,97 @@ async def test_forced_digest_rebaselines_without_false_added_changes(tmp_path: P
     assert message_ids == (78,)
     assert len(destination.rich_sent) == 1
     assert "Расписание изменилось" not in destination.rich_sent[0][2]
-    assert "📅 Сегодня" in destination.rich_sent[0][2]
+    assert "Расписание" in destination.rich_sent[0][2]
     assert load_delivery_state(state_path).previous == current
+
+
+@pytest.mark.asyncio
+async def test_change_edits_existing_calendar_before_sending_one_notice(tmp_path: Path) -> None:
+    state_path = tmp_path / "state.json"
+    previous = _reminder_envelope()
+    current_lesson = replace(previous.lessons[0], room="512")
+    current = replace(
+        previous,
+        fetched_at=previous.fetched_at + timedelta(hours=1),
+        lessons=(current_lesson,),
+    )
+    save_delivery_state(
+        state_path,
+        ScheduleDeliveryState(previous=previous, calendar_message_id=70),
+    )
+    destination = FakeDestination()
+
+    message_ids = await publish_dispatched(
+        _reminder_settings(),
+        text_b64=encode_schedule_envelope(current),
+        group_key=current.group_key,
+        destination=destination,
+        state_path=state_path,
+        clock=lambda: datetime(2026, 9, 11, 10, tzinfo=UTC),
+    )
+
+    assert message_ids == (70, 78)
+    assert len(destination.rich_edited) == 1
+    assert destination.rich_edited[0][1] == 70
+    assert len(destination.rich_sent) == 1
+    assert destination.rich_sent[0][:2] == (-1001, 42)
+    assert destination.rich_sent[0][4] is False
+    assert "Аудитория" in destination.rich_sent[0][2]
+    assert load_delivery_state(state_path).calendar_message_id == 70
+
+
+@pytest.mark.asyncio
+async def test_evening_edits_calendar_and_sends_compact_tomorrow_preview(tmp_path: Path) -> None:
+    state_path = tmp_path / "state.json"
+    previous = _reminder_envelope()
+    current = replace(previous, fetched_at=previous.fetched_at + timedelta(hours=1))
+    save_delivery_state(
+        state_path,
+        ScheduleDeliveryState(previous=previous, calendar_message_id=70),
+    )
+    destination = FakeDestination()
+
+    message_ids = await publish_dispatched(
+        _reminder_settings(),
+        text_b64=encode_schedule_envelope(current),
+        group_key=current.group_key,
+        destination=destination,
+        state_path=state_path,
+        clock=lambda: datetime(2026, 9, 11, 17, 30, tzinfo=UTC),
+    )
+
+    assert message_ids == (70, 77)
+    assert destination.rich_edited[0][1] == 70
+    assert destination.sent is not None
+    assert destination.sent[2].startswith("<b>Завтра · 12 сентября</b>")
+    assert "https://t.me/c/1/42/70" in destination.sent[2]
+
+
+@pytest.mark.asyncio
+async def test_receiver_writes_a_valid_phone_calendar(tmp_path: Path) -> None:
+    state_path = tmp_path / "state.json"
+    calendar_path = tmp_path / "public" / "calendar.ics"
+    current = replace(_reminder_envelope(), force_digest=True)
+
+    await publish_dispatched(
+        _reminder_settings(),
+        text_b64=encode_schedule_envelope(current),
+        group_key=current.group_key,
+        destination=FakeDestination(),
+        state_path=state_path,
+        calendar_path=calendar_path,
+        clock=lambda: datetime(2026, 9, 11, 12, tzinfo=UTC),
+    )
+
+    content = calendar_path.read_text(encoding="utf-8")
+    assert "BEGIN:VCALENDAR" in content
+    assert "SUMMARY:Геодезия" in content
 
 
 @pytest.mark.asyncio
 async def test_receiver_ignores_an_out_of_order_older_snapshot(tmp_path: Path) -> None:
     state_path = tmp_path / "state.json"
+    calendar_path = tmp_path / "calendar.ics"
     current = _reminder_envelope()
     saved = replace(current, fetched_at=current.fetched_at + timedelta(hours=1))
     initial = ScheduleDeliveryState(previous=saved)
@@ -367,6 +470,7 @@ async def test_receiver_ignores_an_out_of_order_older_snapshot(tmp_path: Path) -
         group_key=current.group_key,
         destination=destination,
         state_path=state_path,
+        calendar_path=calendar_path,
         clock=lambda: datetime(2026, 9, 11, 12, tzinfo=UTC),
     )
 
@@ -374,6 +478,8 @@ async def test_receiver_ignores_an_out_of_order_older_snapshot(tmp_path: Path) -
     assert destination.sent_calls == []
     assert destination.rich_sent == []
     assert load_delivery_state(state_path) == initial
+    calendar = calendar_path.read_text(encoding="utf-8")
+    assert "SUMMARY:\u0413\u0435\u043e\u0434\u0435\u0437\u0438\u044f" in calendar
 
 
 @pytest.mark.asyncio
@@ -401,7 +507,7 @@ async def test_due_reminder_converts_utc_to_moscow_routes_and_deduplicates(
     assert len(destination.sent_calls) == 1
     chat_id, topic_id, text = destination.sent_calls[0]
     assert (chat_id, topic_id) == (-1001, 42)
-    assert "Первая пара через 2 часа" in text
+    assert "Первая в 10:45 · через 2 часа" in text
     assert "10:45" in text
     assert load_delivery_state(state_path).sent_reminders == (
         "first:2026-09-11:10:45:00",
@@ -529,7 +635,9 @@ def test_ci_bridge_workflows_keep_telegram_token_out_of_gitverse() -> None:
         assert "group: szs-schedule-state" in state_consumer
         assert "queue: max" in state_consumer
         assert "cancel-in-progress: false" in state_consumer
-        assert "key: schedule-state-v2-${{ github.run_id }}-${{ github.run_attempt }}" in (
+        assert "key: schedule-state-v3-${{ github.run_id }}-${{ github.run_attempt }}" in (
             state_consumer
         )
-        assert "schedule-state-v2-" in state_consumer
+        assert "schedule-state-v3-" in state_consumer
+    assert "SCHEDULE_CALENDAR_PATH" in receiver
+    assert "actions/upload-artifact@v4" in receiver
