@@ -18,7 +18,7 @@ from szs_hub.domain.schedule import (
     ScheduleSnapshot,
     diff_schedules,
 )
-from szs_hub.schedule.render import render_day_card, render_schedule_changes
+from szs_hub.schedule.render import render_day_card
 
 _SCHEMA_VERSION = 3
 _MAX_ENCODED_BYTES = 65_000
@@ -203,20 +203,28 @@ def render_rich_digest(
     start = max(envelope.horizon_start, current_monday)
     end = envelope.horizon_end
     blocks = [
-        f"<h1>Расписание · {_date_range(start, min(start + timedelta(days=6), end))}</h1>",
-        f"<p>{_day_status(envelope, local_now)}</p>",
+        "<h1>Пятница</h1>",
+        f"<p><b>{escape(envelope.group_key)}</b> · {_date_range(start, end)}</p>",
+        f"<aside>{_day_status(envelope, local_now)}</aside>",
     ]
-    for week_start in (start, start + timedelta(days=7)):
+    for week_number, week_start in enumerate((start, start + timedelta(days=7))):
         if week_start > end:
             break
         week_end = min(week_start + timedelta(days=6), end)
-        if week_start != start:
-            blocks.extend(("<hr/>", f"<h2>{_date_range(week_start, week_end)}</h2>"))
+        week_lessons = tuple(
+            lesson for lesson in envelope.lessons if week_start <= lesson.day <= week_end
+        )
+        week_open = " open" if week_number == 0 else ""
+        week_summary = _week_summary_line(week_number, week_start, week_end, week_lessons)
+        blocks.append(
+            f"<details{week_open}><summary>{week_summary}</summary>"
+        )
+        free_days: list[date] = []
         for day_offset in range((week_end - week_start).days + 1):
             day = week_start + timedelta(days=day_offset)
             lessons = _lessons_on(envelope.lessons, day)
             if not lessons:
-                blocks.append(f"<p><b>{_day_name(day, local_now.date())}</b> · занятий нет</p>")
+                free_days.append(day)
                 continue
             open_today = (
                 " open"
@@ -225,11 +233,16 @@ def render_rich_digest(
             )
             blocks.append(
                 f"<details{open_today}><summary>{_day_summary_line(day, lessons, local_now.date())}"
-                f"</summary>{_rich_lesson_list(lessons, group_key=envelope.group_key)}</details>"
+                f"</summary>{_rich_lesson_table(lessons, group_key=envelope.group_key)}</details>"
             )
+        if free_days:
+            blocks.append(f"<p><i>Без пар: {_free_days_line(free_days)}</i></p>")
+        blocks.append("</details>")
     if calendar_feed_url:
         blocks.append(
-            f'<p><a href="{escape(calendar_feed_url)}">Добавить в календарь телефона</a></p>'
+            '<tg-button-row align="center">'
+            f'<tg-button type="url" style="primary" url="{escape(calendar_feed_url)}">'
+            "Добавить в календарь</tg-button></tg-button-row>"
         )
     blocks.append(f"<footer>Обновлено {fetched_local:%d.%m · %H:%M} МСК</footer>")
     return "".join(blocks)
@@ -291,20 +304,15 @@ def render_rich_changes(
     *,
     fetched_at: datetime,
 ) -> str:
-    shown = _group_changes(changes)[:8]
-    blocks = ["<h2>⚠️ Расписание изменилось</h2>"]
-    current_day: date | None = None
-    for group in shown:
-        lesson = group[0].after or group[0].before
-        assert lesson is not None
-        if lesson.day != current_day:
-            current_day = lesson.day
-            blocks.append(
-                f"<h3>{_SHORT_WEEKDAYS[lesson.day.weekday()]}, "
-                f"{lesson.day.day} {_MONTHS[lesson.day.month]}</h3>"
-            )
-        blocks.append(f"<p>{_rich_change_group(group)}</p>")
-    grouped_count = len(_group_changes(changes))
+    grouped = _group_changes(changes)
+    shown = grouped[:8]
+    blocks = [
+        "<h2>Расписание изменилось</h2>",
+        "<p>Календарь уже обновлён. Откройте нужную пару, чтобы увидеть всё целиком.</p>",
+    ]
+    for index, group in enumerate(shown):
+        blocks.append(_rich_change_card(group, is_open=index == 0))
+    grouped_count = len(grouped)
     if grouped_count > len(shown):
         blocks.append(f"<p>И ещё {grouped_count - len(shown)} изменений.</p>")
     blocks.extend(
@@ -318,7 +326,19 @@ def render_rich_changes(
 
 
 def render_changes_fallback(changes: tuple[ScheduleChange, ...]) -> str:
-    return render_schedule_changes(changes[:12], relative_label="в расписании")
+    groups = _group_changes(changes)[:8]
+    parts = ["<b>Расписание изменилось</b>"]
+    for group in groups:
+        lesson = group[0].after or group[0].before
+        assert lesson is not None
+        parts.append(
+            f"<b>{_change_status(group)} · {_event_date(lesson)}</b>\n"
+            f"{_fallback_change_summary(group)}\n"
+            f"{_fallback_event(lesson)}"
+        )
+    if len(_group_changes(changes)) > len(groups):
+        parts.append(f"И ещё {len(_group_changes(changes)) - len(groups)} изменений.")
+    return "\n\n".join(parts)
 
 
 def due_reminder(
@@ -542,6 +562,39 @@ def _day_summary_line(day: date, lessons: tuple[Lesson, ...], today: date) -> st
     return f"{_day_name(day, today)} · {count} {_pair_word(count)} · {_time_span(lessons)}"
 
 
+def _week_summary_line(
+    week_number: int,
+    start: date,
+    end: date,
+    lessons: tuple[Lesson, ...],
+) -> str:
+    label = "Эта неделя" if week_number == 0 else "Следующая неделя"
+    study_days = len({lesson.day for lesson in lessons})
+    pair_count = len(_slot_groups_by_day(lessons))
+    if not lessons:
+        return f"<b>{label}</b> · {_date_range(start, end)} · без пар"
+    return (
+        f"<b>{label}</b> · {_date_range(start, end)} · "
+        f"{study_days} {_day_word(study_days)} · {pair_count} {_pair_word(pair_count)}"
+    )
+
+
+def _slot_groups_by_day(lessons: tuple[Lesson, ...]) -> set[tuple[date, time, time]]:
+    return {(lesson.day, lesson.starts_at, lesson.ends_at) for lesson in lessons}
+
+
+def _day_word(count: int) -> str:
+    if count % 10 == 1 and count % 100 != 11:
+        return "день"
+    if count % 10 in (2, 3, 4) and count % 100 not in (12, 13, 14):
+        return "дня"
+    return "дней"
+
+
+def _free_days_line(days: list[date]) -> str:
+    return ", ".join(f"{_SHORT_WEEKDAYS[day.weekday()]} {day.day}" for day in days)
+
+
 def _has_upcoming(lessons: tuple[Lesson, ...], local_now: datetime) -> bool:
     if not lessons or lessons[0].day != local_now.date():
         return False
@@ -565,36 +618,6 @@ def _day_status(envelope: ScheduleEnvelope, local_now: datetime) -> str:
     return "На сегодня всё"
 
 
-def _rich_lesson_list(lessons: tuple[Lesson, ...], *, group_key: str) -> str:
-    blocks: list[str] = []
-    for (starts_at, ends_at), slot_lessons in _slot_groups(lessons):
-        for lesson in slot_lessons:
-            meta: list[str] = []
-            if lesson.lesson_type:
-                meta.append(escape(lesson.lesson_type.strip()))
-            location = _location(lesson).replace("<br>", " · ")
-            if location:
-                meta.append(f"ауд. {location}")
-            if (
-                lesson.subgroup
-                and lesson.subgroup.strip().casefold() != group_key.strip().casefold()
-            ):
-                meta.append(escape(lesson.subgroup.strip()))
-            lines = [
-                f"<b>{starts_at:%H:%M}–{ends_at:%H:%M}</b>",
-                escape(lesson.subject.strip()),
-            ]
-            if meta:
-                lines.append(" · ".join(meta))
-            lines.append(
-                f"Преподаватель: {escape(lesson.teacher.strip())}"
-                if lesson.teacher and lesson.teacher.strip()
-                else "Преподаватель не указан"
-            )
-            blocks.append(f"<p>{'<br>'.join(lines)}</p>")
-    return "".join(blocks)
-
-
 def _compact_slot_location(lessons: tuple[Lesson, ...]) -> str:
     values = []
     for lesson in lessons:
@@ -604,18 +627,47 @@ def _compact_slot_location(lessons: tuple[Lesson, ...]) -> str:
     return " / ".join(values)
 
 
-def _rich_lesson_table(lessons: tuple[Lesson, ...]) -> str:
-    rows = ["<tr><th>Время</th><th>Предмет</th><th>Где</th></tr>"]
+def _rich_lesson_table(lessons: tuple[Lesson, ...], *, group_key: str) -> str:
+    rows = ["<tr><th>Время</th><th>Пара</th></tr>"]
     for lesson in lessons:
-        location = _location(lesson)
-        subject = escape(lesson.subject.strip())
+        details: list[str] = []
         if lesson.lesson_type:
-            subject = f"{subject}<br><i>{escape(lesson.lesson_type.strip())}</i>"
-        rows.append(
-            f"<tr><td>{lesson.starts_at:%H:%M}–{lesson.ends_at:%H:%M}</td>"
-            f"<td>{subject}</td><td>{location or '—'}</td></tr>"
+            details.append(escape(lesson.lesson_type.strip()))
+        location = _inline_location(lesson)
+        if location:
+            details.append(location)
+        if (
+            lesson.subgroup
+            and lesson.subgroup.strip().casefold() != group_key.strip().casefold()
+        ):
+            details.append(escape(lesson.subgroup.strip()))
+        teacher = (
+            escape(lesson.teacher.strip())
+            if lesson.teacher and lesson.teacher.strip()
+            else "Преподаватель не указан"
         )
-    return f"<table striped compact>{''.join(rows)}</table>"
+        lesson_cell = f"<b>{escape(lesson.subject.strip())}</b>"
+        if details:
+            lesson_cell += f"<br>{' · '.join(details)}"
+        lesson_cell += f"<br><i>{teacher}</i>"
+        rows.append(
+            f'<tr><td align="center" valign="top"><b>{lesson.starts_at:%H:%M}</b>'
+            f"<br><i>{lesson.ends_at:%H:%M}</i></td>"
+            f'<td align="left" valign="top">{lesson_cell}</td></tr>'
+        )
+    return f"<table bordered striped compact>{''.join(rows)}</table>"
+
+
+def _inline_location(lesson: Lesson) -> str:
+    room = escape(lesson.room.strip()) if lesson.room else ""
+    building = escape(lesson.building.strip()) if lesson.building else ""
+    if room and building:
+        return f"ауд. {room} · корп. {building}"
+    if room:
+        return f"ауд. {room}"
+    if building:
+        return f"корп. {building}"
+    return ""
 
 
 def _location(lesson: Lesson) -> str:
@@ -646,34 +698,155 @@ def _pair_word(count: int) -> str:
     return "пар"
 
 
-def _rich_change(change: ScheduleChange) -> str:
-    old = change.before
-    new = change.after
-    lesson = new or old
+def _rich_change_card(changes: tuple[ScheduleChange, ...], *, is_open: bool) -> str:
+    lesson = changes[0].after or changes[0].before
     assert lesson is not None
-    title = f"<b>{escape(lesson.subject)} · {lesson.starts_at:%H:%M}</b>"
-    if change.kind is ChangeKind.ADDED:
-        assert new is not None
-        return f"➕ {title}<br>Добавлена · {_location(new) or 'аудитория не указана'}"
-    if change.kind is ChangeKind.CANCELLED:
-        return f"❌ {title}<br>Пара отменена"
-    assert old is not None and new is not None
-    if change.kind is ChangeKind.TIME:
-        before = f"{old.starts_at:%H:%M}–{old.ends_at:%H:%M}"
-        after = f"{new.starts_at:%H:%M}–{new.ends_at:%H:%M}"
-        return f"{title}<br>Время: <s>{before}</s> → <mark>{after}</mark>"
-    labels = {
+    status = _change_status(changes)
+    open_attribute = " open" if is_open else ""
+    summary = (
+        f"<b>{status}</b> · {_SHORT_WEEKDAYS[lesson.day.weekday()]}, {lesson.day.day} · "
+        f"{lesson.starts_at:%H:%M} · {escape(lesson.subject)}"
+    )
+    blocks = [
+        f"<details{open_attribute}><summary>{summary}</summary>",
+        _rich_change_summary(changes),
+    ]
+    changed_kinds = {change.kind for change in changes}
+    if any(change.kind is ChangeKind.CANCELLED for change in changes):
+        blocks.append(
+            _rich_event_table(lesson, caption="Отменённая пара", highlighted=changed_kinds)
+        )
+    else:
+        current = changes[0].after or lesson
+        blocks.append(
+            _rich_event_table(current, caption="Актуальная пара", highlighted=changed_kinds)
+        )
+        previous = changes[0].before
+        if previous is not None and all(change.kind is not ChangeKind.ADDED for change in changes):
+            blocks.append(
+                "<details><summary>Прежний вариант</summary>"
+                f"{_rich_event_table(previous, caption=None, highlighted=set())}</details>"
+            )
+    blocks.append("</details>")
+    return "".join(blocks)
+
+
+def _change_status(changes: tuple[ScheduleChange, ...]) -> str:
+    kinds = {change.kind for change in changes}
+    if ChangeKind.ADDED in kinds:
+        return "Добавлена"
+    if ChangeKind.CANCELLED in kinds:
+        return "Отменена"
+    return "Обновлена"
+
+
+def _rich_change_summary(changes: tuple[ScheduleChange, ...]) -> str:
+    if any(change.kind is ChangeKind.ADDED for change in changes):
+        return "<blockquote><mark>Новая пара добавлена в расписание</mark></blockquote>"
+    if any(change.kind is ChangeKind.CANCELLED for change in changes):
+        return "<blockquote><b>Эта пара отменена</b></blockquote>"
+    rows: list[str] = []
+    for change in changes:
+        assert change.before is not None and change.after is not None
+        before, after = _change_values(change)
+        rows.append(
+            f"<b>{_change_label(change.kind)}</b><br>"
+            f"<s>{escape(before)}</s> → <mark>{escape(after)}</mark>"
+        )
+    return f"<blockquote>{'<br>'.join(rows)}</blockquote>"
+
+
+def _rich_event_table(
+    lesson: Lesson,
+    *,
+    caption: str | None,
+    highlighted: set[ChangeKind],
+) -> str:
+    values: list[tuple[str, str, ChangeKind | None]] = [
+        ("Дата", _event_date(lesson), None),
+        ("Время", f"{lesson.starts_at:%H:%M}–{lesson.ends_at:%H:%M}", ChangeKind.TIME),
+        ("Предмет", lesson.subject, ChangeKind.SUBJECT),
+        ("Тип", lesson.lesson_type or "не указан", ChangeKind.LESSON_TYPE),
+        ("Где", _plain_location(lesson), ChangeKind.ROOM),
+        ("Преподаватель", lesson.teacher or "не указан", ChangeKind.TEACHER),
+        ("Подгруппа", lesson.subgroup or "вся группа", None),
+    ]
+    rows: list[str] = []
+    for label, value, kind in values:
+        rendered = escape(value)
+        if kind in highlighted or (kind is ChangeKind.ROOM and ChangeKind.BUILDING in highlighted):
+            rendered = f"<mark>{rendered}</mark>"
+        rows.append(
+            f'<tr><th align="left" valign="top">{label}</th>'
+            f'<td align="left" valign="top">{rendered}</td></tr>'
+        )
+    caption_html = f"<caption><b>{caption}</b></caption>" if caption else ""
+    return f"<table bordered compact>{caption_html}{''.join(rows)}</table>"
+
+
+def _event_date(lesson: Lesson) -> str:
+    return f"{_SHORT_WEEKDAYS[lesson.day.weekday()]}, {lesson.day.day} {_MONTHS[lesson.day.month]}"
+
+
+def _plain_location(lesson: Lesson) -> str:
+    room = lesson.room.strip() if lesson.room else ""
+    building = lesson.building.strip() if lesson.building else ""
+    if room and building:
+        return f"ауд. {room}, корп. {building}"
+    if room:
+        return f"ауд. {room}"
+    if building:
+        return f"корп. {building}"
+    return "не указано"
+
+
+def _change_label(kind: ChangeKind) -> str:
+    return {
+        ChangeKind.TIME: "Время",
         ChangeKind.ROOM: "Аудитория",
         ChangeKind.BUILDING: "Корпус",
         ChangeKind.TEACHER: "Преподаватель",
         ChangeKind.LESSON_TYPE: "Тип занятия",
         ChangeKind.SUBJECT: "Предмет",
-    }
-    before_value = _changed_value(old, change.kind)
-    after_value = _changed_value(new, change.kind)
-    return (
-        f"{title}<br>{labels[change.kind]}: "
-        f"<s>{escape(before_value)}</s> → <mark>{escape(after_value)}</mark>"
+        ChangeKind.ADDED: "Добавлено",
+        ChangeKind.CANCELLED: "Отменено",
+    }[kind]
+
+
+def _change_values(change: ScheduleChange) -> tuple[str, str]:
+    assert change.before is not None and change.after is not None
+    if change.kind is ChangeKind.TIME:
+        return (
+            f"{change.before.starts_at:%H:%M}–{change.before.ends_at:%H:%M}",
+            f"{change.after.starts_at:%H:%M}–{change.after.ends_at:%H:%M}",
+        )
+    return _changed_value(change.before, change.kind), _changed_value(change.after, change.kind)
+
+
+def _fallback_change_summary(changes: tuple[ScheduleChange, ...]) -> str:
+    if any(change.kind is ChangeKind.ADDED for change in changes):
+        return "Добавлена новая пара."
+    if any(change.kind is ChangeKind.CANCELLED for change in changes):
+        return "Пара отменена."
+    rows = []
+    for change in changes:
+        before, after = _change_values(change)
+        rows.append(
+            f"{_change_label(change.kind)}: <s>{escape(before)}</s> → <b>{escape(after)}</b>"
+        )
+    return "\n".join(rows)
+
+
+def _fallback_event(lesson: Lesson) -> str:
+    return "\n".join(
+        (
+            f"<b>{escape(lesson.subject)}</b>",
+            f"{_event_date(lesson)} · {lesson.starts_at:%H:%M}–{lesson.ends_at:%H:%M}",
+            f"Тип: {escape(lesson.lesson_type or 'не указан')}",
+            f"Где: {escape(_plain_location(lesson))}",
+            f"Преподаватель: {escape(lesson.teacher or 'не указан')}",
+            f"Подгруппа: {escape(lesson.subgroup or 'вся группа')}",
+        )
     )
 
 
@@ -699,37 +872,6 @@ def _group_changes(
     for change in changes:
         grouped.setdefault(_change_identity(change), []).append(change)
     return tuple(tuple(items) for items in grouped.values())
-
-
-def _rich_change_group(changes: tuple[ScheduleChange, ...]) -> str:
-    if len(changes) == 1:
-        return _rich_change(changes[0])
-    lesson = changes[0].after or changes[0].before
-    assert lesson is not None
-    rows = [f"<b>{escape(lesson.subject)} · {lesson.starts_at:%H:%M}</b>"]
-    labels = {
-        ChangeKind.TIME: "Время",
-        ChangeKind.ROOM: "Аудитория",
-        ChangeKind.BUILDING: "Корпус",
-        ChangeKind.TEACHER: "Преподаватель",
-        ChangeKind.LESSON_TYPE: "Тип занятия",
-        ChangeKind.SUBJECT: "Предмет",
-    }
-    for change in changes:
-        if change.kind in (ChangeKind.ADDED, ChangeKind.CANCELLED):
-            rows.append(_rich_change(change))
-            continue
-        assert change.before is not None and change.after is not None
-        if change.kind is ChangeKind.TIME:
-            before = f"{change.before.starts_at:%H:%M}–{change.before.ends_at:%H:%M}"
-            after = f"{change.after.starts_at:%H:%M}–{change.after.ends_at:%H:%M}"
-        else:
-            before = _changed_value(change.before, change.kind)
-            after = _changed_value(change.after, change.kind)
-        rows.append(
-            f"{labels[change.kind]}: <s>{escape(before)}</s> → <mark>{escape(after)}</mark>"
-        )
-    return "<br>".join(rows)
 
 
 def _changed_value(lesson: Lesson, kind: ChangeKind) -> str:

@@ -97,8 +97,10 @@ def test_rich_digest_uses_article_primitives_and_escapes_source_data() -> None:
         local_now=datetime(2026, 9, 1, 20, 30, tzinfo=UTC),
     )
 
-    assert rendered.startswith("<h1>Расписание · 31 августа – 6 сентября</h1>")
-    assert "<table" not in rendered
+    assert rendered.startswith("<h1>Пятница</h1><p><b>3-СУЗСс-3</b>")
+    assert "<table bordered striped compact>" in rendered
+    assert "<th>Время</th><th>Пара</th>" in rendered
+    assert "<th>Где</th>" not in rendered
     assert "<details" in rendered
     assert "<tg-button-row" not in rendered
     assert "https://" not in rendered
@@ -121,7 +123,9 @@ def test_calendar_card_links_to_the_live_phone_feed() -> None:
         calendar_feed_url=url,
     )
 
-    assert "Добавить в календарь телефона" in rich
+    assert '<tg-button-row align="center">' in rich
+    assert 'style="primary"' in rich
+    assert "Добавить в календарь" in rich
     assert url in rich
     assert url in fallback
 
@@ -137,10 +141,75 @@ def test_nighttime_forced_digest_keeps_the_upcoming_current_day() -> None:
         local_now=datetime(2026, 9, 11, 1, 50, tzinfo=UTC),
     )
 
-    assert rendered.startswith("<h1>Расписание · 7–13 сентября</h1>")
+    assert rendered.startswith("<h1>Пятница</h1><p><b>3-СУЗСс-3</b> · 7–20 сентября</p>")
     assert "Пятничная пара" in rendered
     assert "Пт, 11 · Сегодня" in rendered
     assert "<details open>" in rendered
+
+
+def test_change_card_shows_delta_and_complete_current_and_previous_event() -> None:
+    old = _lesson(
+        date(2026, 9, 11),
+        room="312",
+        teacher="Иванов Иван Иванович",
+    )
+    new = _lesson(
+        date(2026, 9, 11),
+        room="407",
+        teacher="Петров Пётр Петрович",
+    )
+    changes = overlapping_changes(
+        _envelope(date(2026, 9, 7), old),
+        _envelope(date(2026, 9, 7), new),
+        today=date(2026, 9, 11),
+    )
+
+    rich = render_rich_changes(changes, fetched_at=datetime(2026, 9, 11, 8, tzinfo=UTC))
+    fallback = render_changes_fallback(changes)
+
+    assert rich.startswith("<h2>Расписание изменилось</h2>")
+    assert "<details open>" in rich
+    assert "Аудитория" in rich
+    assert "Преподаватель" in rich
+    assert "<s>312</s> → <mark>407</mark>" in rich
+    assert "<caption><b>Актуальная пара</b></caption>" in rich
+    assert "Геодезия" in rich
+    assert "Практика" in rich
+    assert "ауд. 407, корп. 1" in rich
+    assert "Петров Пётр Петрович" in rich
+    assert "Прежний вариант" in rich
+    assert "Иванов Иван Иванович" in rich
+    assert "Где: ауд. 407, корп. 1" in fallback
+    assert "Преподаватель: Петров Пётр Петрович" in fallback
+
+
+def test_added_and_cancelled_change_cards_keep_the_complete_event() -> None:
+    lesson = _lesson(
+        date(2026, 9, 11),
+        room="407",
+        subject="Техническая механика",
+        teacher="Петров Пётр Петрович",
+    )
+    empty = _envelope(date(2026, 9, 7))
+    populated = _envelope(date(2026, 9, 7), lesson)
+
+    added = render_rich_changes(
+        overlapping_changes(empty, populated, today=date(2026, 9, 11)),
+        fetched_at=populated.fetched_at,
+    )
+    cancelled = render_rich_changes(
+        overlapping_changes(populated, empty, today=date(2026, 9, 11)),
+        fetched_at=empty.fetched_at,
+    )
+
+    assert "<b>Добавлена</b>" in added
+    assert "<caption><b>Актуальная пара</b></caption>" in added
+    assert "Техническая механика" in added
+    assert "Петров Пётр Петрович" in added
+    assert "<b>Отменена</b>" in cancelled
+    assert "<caption><b>Отменённая пара</b></caption>" in cancelled
+    assert "Техническая механика" in cancelled
+    assert "Петров Пётр Петрович" in cancelled
 
 
 def test_first_class_reminder_is_due_two_hours_before_and_only_once() -> None:
