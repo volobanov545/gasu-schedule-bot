@@ -698,27 +698,25 @@ def _rich_lesson_table(
         is_next = lesson.day == today and lesson.starts_at == upcoming_start
         subject = f"<b>{escape(lesson.subject.strip())}</b>"
         if is_current:
-            subject = f"<mark>{subject}</mark>"
+            state_label = "<b>Сейчас</b><br>"
         elif is_next:
-            subject = f"<u>{subject}</u>"
-        if is_current:
-            state_label = "<mark>Сейчас</mark><br>"
-        elif is_next:
-            state_label = "<u>Далее</u><br>"
+            state_label = "<mark><b>Далее</b></mark><br>"
         else:
             state_label = ""
+        time_cell_tag = "th" if is_next else "td"
         row_span = 4 if subgroup else 3
         rows.append(
-            f'<tr><td rowspan="{row_span}" align="center" valign="middle">'
+            f'<tr><{time_cell_tag} rowspan="{row_span}" '
+            'align="center" valign="middle">'
             f"{state_label}<b>{lesson.starts_at:%H:%M}</b>"
-            f"<br><i>{lesson.ends_at:%H:%M}</i></td>"
-            f'<th colspan="3" align="left" valign="middle">{subject}</th></tr>'
+            f"<br><i>{lesson.ends_at:%H:%M}</i></{time_cell_tag}>"
+            f'<th colspan="3" align="center" valign="middle">{subject}</th></tr>'
             '<tr>'
             f'<td align="center" valign="middle"><i>Тип</i><br>{lesson_type}</td>'
             f'<td align="center" valign="middle"><i>Ауд.</i><br><b>{room}</b></td>'
             f'<td align="center" valign="middle"><i>Корп.</i><br><b>{building}</b></td>'
             '</tr>'
-            f'<tr><td colspan="3" align="left" valign="middle">'
+            f'<tr><td colspan="3" align="center" valign="middle">'
             f"👤 <i>{teacher}</i></td></tr>"
         )
         if subgroup:

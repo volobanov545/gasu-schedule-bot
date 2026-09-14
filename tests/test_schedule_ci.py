@@ -103,11 +103,11 @@ def test_rich_digest_uses_article_primitives_and_escapes_source_data() -> None:
     assert "🗓 Эта неделя" in rendered
     assert "<table bordered compact>" in rendered
     assert '<td rowspan="3" align="center" valign="middle">' in rendered
-    assert '<th colspan="3" align="left" valign="middle">' in rendered
+    assert '<th colspan="3" align="center" valign="middle">' in rendered
     assert '<i>Тип</i><br>Практика' in rendered
     assert '<i>Ауд.</i><br><b>312</b>' in rendered
     assert '<i>Корп.</i><br><b>1</b>' in rendered
-    assert '<td colspan="3" align="left" valign="middle">👤' in rendered
+    assert '<td colspan="3" align="center" valign="middle">👤' in rendered
     assert "<th>Где</th>" not in rendered
     assert "<details" in rendered
     assert "<tg-button-row" not in rendered
@@ -160,8 +160,23 @@ def test_current_lesson_gets_a_live_visual_accent() -> None:
     )
 
     assert "🟢 <mark><b>Сейчас</b></mark>" in rendered
-    assert "<mark>Сейчас</mark><br><b>10:45</b>" in rendered
-    assert "<mark><b>Геодезия</b></mark>" in rendered
+    assert "<b>Сейчас</b><br><b>10:45</b>" in rendered
+    assert "<mark><b>Геодезия</b></mark>" not in rendered
+
+
+def test_next_lesson_colors_only_its_time_cell() -> None:
+    envelope = _envelope(date(2026, 9, 14), _lesson(date(2026, 9, 14)))
+
+    rendered = render_rich_digest(
+        envelope,
+        local_now=datetime(2026, 9, 14, 8, tzinfo=UTC),
+    )
+
+    assert (
+        '<th rowspan="3" align="center" valign="middle">'
+        "<mark><b>Далее</b></mark><br><b>10:45</b>"
+    ) in rendered
+    assert "<u><b>Геодезия</b></u>" not in rendered
 
 
 def test_nighttime_forced_digest_keeps_the_upcoming_current_day() -> None:

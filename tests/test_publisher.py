@@ -334,7 +334,7 @@ async def test_github_receiver_sends_forced_rich_digest_and_persists_state(
     assert "<h1>🗓 Расписание</h1>" in destination.rich_sent[0][2]
     assert "<table bordered compact>" in destination.rich_sent[0][2]
     assert 'rowspan="3" align="center" valign="middle"' in destination.rich_sent[0][2]
-    assert 'colspan="3" align="left" valign="middle"' in destination.rich_sent[0][2]
+    assert 'colspan="3" align="center" valign="middle"' in destination.rich_sent[0][2]
     assert "<details" in destination.rich_sent[0][2]
     assert "Иванов И. И." in destination.rich_sent[0][2]
     assert destination.pinned == [(-1001, 78)]
@@ -458,7 +458,7 @@ async def test_regular_snapshot_refreshes_live_status_on_the_pinned_card(tmp_pat
 
     assert message_ids == (70,)
     assert destination.rich_edited[0][1] == 70
-    assert "<mark>Сейчас</mark>" in destination.rich_edited[0][2]
+    assert "<b>Сейчас</b><br><b>" in destination.rich_edited[0][2]
     assert destination.rich_sent == []
 
 
