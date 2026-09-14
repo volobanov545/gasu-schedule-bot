@@ -28,11 +28,11 @@ profile remains dormant; its older blockers below do not block the schedule-only
 - **The current Telegram client rendering is not a compatibility guarantee.** Rich
   Message is attempted first and a classic HTML fallback preserves the essential card.
   Visual differences across old clients are expected.
-- **The phone calendar feed is generated but not yet publicly subscribed.** Every accepted
-  snapshot produces an RFC 5545 `.ics` artifact with stable lesson UIDs, Moscow time,
-  locations, and teacher names. The repository is private and GitHub Free cannot publish
-  Pages from it, so a separate public feed-only repository or another stable HTTPS host is
-  still required before Google/Apple can refresh it automatically.
+- **The phone calendar feed is live, but refresh timing is client-controlled.** Every
+  accepted snapshot produces an RFC 5545 `.ics` artifact with stable lesson UIDs, Moscow
+  time, locations, and teacher names and deploys it to GitHub Pages. The public endpoint was
+  verified with HTTP 200 on 2026-09-14. Google/Apple decide when to refetch subscriptions,
+  so Telegram remains the timely channel for urgent changes.
 - **Hosting and recovery not proven.** The 4VPS candidate is not purchased/burned in, the
   RUVDS fallback is not exercised, and no encrypted object backup has completed a full
   download/decrypt/restore drill.

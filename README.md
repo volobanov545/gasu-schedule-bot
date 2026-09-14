@@ -10,7 +10,8 @@ The selected deployment is a two-CI bridge, not a VPS or an always-on home compu
 A Russian GitVerse runner fetches the public schedule and dispatches only a bounded,
 validated two-week snapshot to a narrow GitHub Actions receiver. GitHub holds the
 Telegram token, renders or edits the calendar, sends notices, and schedules class reminders.
-It also produces a standards-based iCalendar file for a future phone-calendar subscription.
+It also publishes a standards-based, auto-updating iCalendar feed at
+<https://volobanov545.github.io/gasu-schedule-bot/calendar.ics> for phone calendars.
 Setup and bridge status are in
 [docs/GITHUB_ACTIONS_RU.md](docs/GITHUB_ACTIONS_RU.md).
 
