@@ -48,6 +48,21 @@ _MONTHS = (
     "ноября",
     "декабря",
 )
+_SHORT_MONTHS = (
+    "",
+    "янв",
+    "фев",
+    "мар",
+    "апр",
+    "май",
+    "июн",
+    "июл",
+    "авг",
+    "сен",
+    "окт",
+    "ноя",
+    "дек",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -544,10 +559,19 @@ def _date_range(start: date, end: date) -> str:
     return f"{start.day} {_MONTHS[start.month]} – {end.day} {_MONTHS[end.month]}"
 
 
+def _short_date_range(start: date, end: date) -> str:
+    if start.month == end.month:
+        return f"{start.day}–{end.day} {_SHORT_MONTHS[start.month]}"
+    return (
+        f"{start.day} {_SHORT_MONTHS[start.month]}–"
+        f"{end.day} {_SHORT_MONTHS[end.month]}"
+    )
+
+
 def _day_name(day: date, today: date) -> str:
     if day == today:
-        return f"<mark>Сегодня</mark> · {_SHORT_WEEKDAYS[day.weekday()]}, {day.day}"
-    return f"{_SHORT_WEEKDAYS[day.weekday()]}, {day.day}"
+        return "<mark>Сегодня</mark>"
+    return f"{_SHORT_WEEKDAYS[day.weekday()]} {day.day}"
 
 
 def _slot_groups(
@@ -573,7 +597,7 @@ def _time_span(lessons: tuple[Lesson, ...]) -> str:
 
 def _day_summary_line(day: date, lessons: tuple[Lesson, ...], today: date) -> str:
     count = len(_slot_groups(lessons))
-    return f"{_day_name(day, today)} · {count} {_pair_word(count)} · {_time_span(lessons)}"
+    return f"{_day_name(day, today)} ({count} {_pair_word(count)})"
 
 
 def _week_summary_line(
@@ -582,27 +606,15 @@ def _week_summary_line(
     end: date,
     lessons: tuple[Lesson, ...],
 ) -> str:
-    label = "🗓 Эта неделя" if week_number == 0 else "🔭 Следующая неделя"
-    study_days = len({lesson.day for lesson in lessons})
+    icon = "🗓" if week_number == 0 else "🔭"
     pair_count = len(_slot_groups_by_day(lessons))
     if not lessons:
-        return f"<b>{label}</b> · {_date_range(start, end)} · без пар"
-    return (
-        f"<b>{label}</b> · {_date_range(start, end)} · "
-        f"{study_days} {_day_word(study_days)} · {pair_count} {_pair_word(pair_count)}"
-    )
+        return f"<b>{icon} {_short_date_range(start, end)}</b> (пар нет)"
+    return f"<b>{icon} {_short_date_range(start, end)}</b> ({pair_count} {_pair_word(pair_count)})"
 
 
 def _slot_groups_by_day(lessons: tuple[Lesson, ...]) -> set[tuple[date, time, time]]:
     return {(lesson.day, lesson.starts_at, lesson.ends_at) for lesson in lessons}
-
-
-def _day_word(count: int) -> str:
-    if count % 10 == 1 and count % 100 != 11:
-        return "день"
-    if count % 10 in (2, 3, 4) and count % 100 not in (12, 13, 14):
-        return "дня"
-    return "дней"
 
 
 def _free_days_line(days: list[date]) -> str:

@@ -100,7 +100,10 @@ def test_rich_digest_uses_article_primitives_and_escapes_source_data() -> None:
 
     assert rendered.startswith("<h1>🗓 Расписание</h1><p><b>3-СУЗСс-3</b>")
     assert "<hr/>" in rendered
-    assert "🗓 Эта неделя" in rendered
+    assert "<b>🗓 31 авг–6 сен</b> (1 пара)" in rendered
+    assert "<b>🔭 7–13 сен</b> (пар нет)" in rendered
+    assert "Эта неделя" not in rendered
+    assert "Следующая неделя" not in rendered
     assert "<table bordered compact>" in rendered
     assert '<td rowspan="4" align="center" valign="middle">' in rendered
     assert '<th colspan="3" align="center" valign="middle">' in rendered
@@ -197,7 +200,8 @@ def test_nighttime_forced_digest_keeps_the_upcoming_current_day() -> None:
         "<h1>🗓 Расписание</h1><p><b>3-СУЗСс-3</b> · <i>7–20 сентября</i></p>"
     )
     assert "Пятничная пара" in rendered
-    assert "<mark>Сегодня</mark> · Пт, 11" in rendered
+    assert "<mark>Сегодня</mark> (1 пара)" in rendered
+    assert "<mark>Сегодня</mark> ·" not in rendered
     assert "<details open>" in rendered
 
 
