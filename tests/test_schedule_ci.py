@@ -97,7 +97,9 @@ def test_rich_digest_uses_article_primitives_and_escapes_source_data() -> None:
         local_now=datetime(2026, 9, 1, 20, 30, tzinfo=UTC),
     )
 
-    assert rendered.startswith("<h1>Пятница</h1><p><b>3-СУЗСс-3</b>")
+    assert rendered.startswith("<h1>✨ Пятница</h1><p><b>3-СУЗСс-3</b>")
+    assert "<hr/>" in rendered
+    assert "🗓 Эта неделя" in rendered
     assert "<table bordered striped compact>" in rendered
     assert "<th>Время</th><th>Пара</th>" in rendered
     assert "<th>Где</th>" not in rendered
@@ -125,9 +127,22 @@ def test_calendar_card_links_to_the_live_phone_feed() -> None:
 
     assert '<tg-button-row align="center">' in rich
     assert 'style="primary"' in rich
-    assert "Добавить в календарь" in rich
+    assert "📲 Подключить календарь" in rich
     assert url in rich
     assert url in fallback
+
+
+def test_current_lesson_gets_a_live_visual_accent() -> None:
+    envelope = _envelope(date(2026, 9, 14), _lesson(date(2026, 9, 14)))
+
+    rendered = render_rich_digest(
+        envelope,
+        local_now=datetime(2026, 9, 14, 11, tzinfo=UTC),
+    )
+
+    assert "🟢 <mark><b>Сейчас</b></mark>" in rendered
+    assert "<mark>Сейчас</mark><br><b>10:45</b>" in rendered
+    assert "<mark><b>Геодезия</b></mark>" in rendered
 
 
 def test_nighttime_forced_digest_keeps_the_upcoming_current_day() -> None:
@@ -141,9 +156,11 @@ def test_nighttime_forced_digest_keeps_the_upcoming_current_day() -> None:
         local_now=datetime(2026, 9, 11, 1, 50, tzinfo=UTC),
     )
 
-    assert rendered.startswith("<h1>Пятница</h1><p><b>3-СУЗСс-3</b> · 7–20 сентября</p>")
+    assert rendered.startswith(
+        "<h1>✨ Пятница</h1><p><b>3-СУЗСс-3</b> · <i>7–20 сентября</i></p>"
+    )
     assert "Пятничная пара" in rendered
-    assert "Пт, 11 · Сегодня" in rendered
+    assert "<mark>Сегодня</mark> · Пт, 11" in rendered
     assert "<details open>" in rendered
 
 
@@ -167,12 +184,12 @@ def test_change_card_shows_delta_and_complete_current_and_previous_event() -> No
     rich = render_rich_changes(changes, fetched_at=datetime(2026, 9, 11, 8, tzinfo=UTC))
     fallback = render_changes_fallback(changes)
 
-    assert rich.startswith("<h2>Расписание изменилось</h2>")
+    assert rich.startswith("<h2>⚡ Расписание изменилось</h2>")
     assert "<details open>" in rich
     assert "Аудитория" in rich
     assert "Преподаватель" in rich
     assert "<s>312</s> → <mark>407</mark>" in rich
-    assert "<caption><b>Актуальная пара</b></caption>" in rich
+    assert "<caption><b>✨ Актуальная пара</b></caption>" in rich
     assert "Геодезия" in rich
     assert "Практика" in rich
     assert "ауд. 407, корп. 1" in rich
@@ -202,12 +219,12 @@ def test_added_and_cancelled_change_cards_keep_the_complete_event() -> None:
         fetched_at=empty.fetched_at,
     )
 
-    assert "<b>Добавлена</b>" in added
-    assert "<caption><b>Актуальная пара</b></caption>" in added
+    assert "<b>🆕 Добавлена</b>" in added
+    assert "<caption><b>✨ Актуальная пара</b></caption>" in added
     assert "Техническая механика" in added
     assert "Петров Пётр Петрович" in added
-    assert "<b>Отменена</b>" in cancelled
-    assert "<caption><b>Отменённая пара</b></caption>" in cancelled
+    assert "<b>🚨 Отменена</b>" in cancelled
+    assert "<caption><b>🚨 Отменённая пара</b></caption>" in cancelled
     assert "Техническая механика" in cancelled
     assert "Петров Пётр Петрович" in cancelled
 
@@ -224,7 +241,8 @@ def test_first_class_reminder_is_due_two_hours_before_and_only_once() -> None:
     assert reminder is not None
     marker, text = reminder
     assert marker == "first:2026-09-11:10:45:00"
-    assert "Первая в 10:45 · через 2 часа" in text
+    assert "🌅 Первая пара в 10:45" in text
+    assert "<i>Через 2 часа</i>" in text
     assert "10:45" in text
     assert "Геодезия" in text
     assert due_reminder(envelope, local_now=now, sent_markers=(marker,)) is None
@@ -260,7 +278,8 @@ def test_next_class_reminder_names_time_place_and_wait() -> None:
 
     assert reminder is not None
     _, text = reminder
-    assert "Следующая в 10:45 · через 30 мин" in text
+    assert "⏰ Следующая в 10:45" in text
+    assert "<i>Через 30 мин</i>" in text
     assert "10:45" in text
     assert "407 · <i>корп. 2</i>" in text
 
@@ -277,7 +296,8 @@ def test_evening_summary_is_short_and_links_to_pinned_calendar() -> None:
         calendar_url="https://t.me/c/123/42/77",
     )
 
-    assert rendered.startswith("<b>Завтра · 12 сентября</b>")
+    assert rendered.startswith("<b>🌙 Завтра · 12 сентября</b>")
+    assert "📚 1 пара" in rendered
     assert "1 пара · 10:45–12:15" in rendered
     assert "Открыть календарь" in rendered
     assert "Иванов" not in rendered

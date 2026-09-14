@@ -203,9 +203,10 @@ def render_rich_digest(
     start = max(envelope.horizon_start, current_monday)
     end = envelope.horizon_end
     blocks = [
-        "<h1>Пятница</h1>",
-        f"<p><b>{escape(envelope.group_key)}</b> · {_date_range(start, end)}</p>",
+        "<h1>✨ Пятница</h1>",
+        f"<p><b>{escape(envelope.group_key)}</b> · <i>{_date_range(start, end)}</i></p>",
         f"<aside>{_day_status(envelope, local_now)}</aside>",
+        "<hr/>",
     ]
     for week_number, week_start in enumerate((start, start + timedelta(days=7))):
         if week_start > end:
@@ -231,18 +232,24 @@ def render_rich_digest(
                 if day == local_now.date() and _has_upcoming(lessons, local_now)
                 else ""
             )
+            lesson_table = _rich_lesson_table(
+                lessons,
+                group_key=envelope.group_key,
+                local_now=local_now,
+            )
             blocks.append(
                 f"<details{open_today}><summary>{_day_summary_line(day, lessons, local_now.date())}"
-                f"</summary>{_rich_lesson_table(lessons, group_key=envelope.group_key)}</details>"
+                f"</summary>{lesson_table}</details>"
             )
         if free_days:
-            blocks.append(f"<p><i>Без пар: {_free_days_line(free_days)}</i></p>")
+            blocks.append(f"<p>☕ <i>Без пар: {_free_days_line(free_days)}</i></p>")
         blocks.append("</details>")
     if calendar_feed_url:
         blocks.append(
+            "<hr/>"
             '<tg-button-row align="center">'
             f'<tg-button type="url" style="primary" url="{escape(calendar_feed_url)}">'
-            "Добавить в календарь</tg-button></tg-button-row>"
+            "📲 Подключить календарь</tg-button></tg-button-row>"
         )
     blocks.append(f"<footer>Обновлено {fetched_local:%d.%m · %H:%M} МСК</footer>")
     return "".join(blocks)
@@ -273,16 +280,18 @@ def render_evening_summary(
 ) -> str:
     day = local_now.date() + timedelta(days=1)
     lessons = _lessons_on(envelope.lessons, day)
-    heading = f"<b>Завтра · {day.day} {_MONTHS[day.month]}</b>"
+    heading = f"<b>🌙 Завтра · {day.day} {_MONTHS[day.month]}</b>"
     if not lessons:
         body = "Занятий нет."
     else:
         slots = _slot_groups(lessons)
-        lines = [heading, f"{len(slots)} {_pair_word(len(slots))} · {_time_span(lessons)}"]
+        lines = [heading, f"📚 {len(slots)} {_pair_word(len(slots))} · {_time_span(lessons)}"]
         for (starts_at, _ends_at), slot_lessons in slots:
             subjects = " / ".join(dict.fromkeys(escape(item.subject) for item in slot_lessons))
             place = _compact_slot_location(slot_lessons)
-            lines.append(f"<b>{starts_at:%H:%M}</b> · {subjects}{f' · {place}' if place else ''}")
+            lines.append(
+                f"<b>• {starts_at:%H:%M}</b> · {subjects}{f' · 📍 {place}' if place else ''}"
+            )
         body = "\n".join(lines)
         heading = ""
     text = f"{heading}\n{body}".strip()
@@ -307,8 +316,10 @@ def render_rich_changes(
     grouped = _group_changes(changes)
     shown = grouped[:8]
     blocks = [
-        "<h2>Расписание изменилось</h2>",
-        "<p>Календарь уже обновлён. Откройте нужную пару, чтобы увидеть всё целиком.</p>",
+        "<h2>⚡ Расписание изменилось</h2>",
+        "<aside><b>Календарь уже обновлён</b><br>"
+        "Откройте нужную пару: внутри — изменение и событие целиком.</aside>",
+        "<hr/>",
     ]
     for index, group in enumerate(shown):
         blocks.append(_rich_change_card(group, is_open=index == 0))
@@ -337,7 +348,7 @@ def render_changes_fallback(changes: tuple[ScheduleChange, ...]) -> str:
             f"{_fallback_event(lesson)}"
         )
     if len(_group_changes(changes)) > len(groups):
-        parts.append(f"И ещё {len(_group_changes(changes)) - len(groups)} изменений.")
+        parts.append(f"Ещё изменений: {len(_group_changes(changes)) - len(groups)}.")
     return "\n\n".join(parts)
 
 
@@ -375,7 +386,8 @@ def due_reminder(
                 // 60
             )
             text = (
-                f"<b>Следующая в {next_start:%H:%M} · через {_minutes_phrase(until_next)}</b>\n"
+                f"<b>⏰ Следующая в {next_start:%H:%M}</b>\n"
+                f"<i>Через {_minutes_phrase(until_next)}</i>\n"
                 f"{_reminder_block(next_start, tuple(next_lessons), group_key=envelope.group_key)}"
             )
             return marker, text
@@ -386,7 +398,8 @@ def due_reminder(
     marker = f"first:{local_now.date().isoformat()}:{first_start}"
     if 90 <= minutes_until <= 130 and marker not in sent:
         text = (
-            f"<b>Первая в {first_start:%H:%M} · через {_minutes_phrase(minutes_until)}</b>\n"
+            f"<b>🌅 Первая пара в {first_start:%H:%M}</b>\n"
+            f"<i>Через {_minutes_phrase(minutes_until)}</i>\n"
             f"{_reminder_block(first_start, tuple(ordered[0][1]), group_key=envelope.group_key)}"
         )
         return marker, text
@@ -521,7 +534,7 @@ def _reminder_block(
         if lesson.subgroup and lesson.subgroup.strip().casefold() != group_key.strip().casefold():
             details.append(escape(lesson.subgroup.strip()))
         suffix = f"\n{' · '.join(details)}" if details else ""
-        rows.append(f"{subject}{suffix}")
+        rows.append(f"<b>{subject}</b>{suffix}")
     return "\n\n".join(rows)
 
 
@@ -532,8 +545,9 @@ def _date_range(start: date, end: date) -> str:
 
 
 def _day_name(day: date, today: date) -> str:
-    suffix = " · Сегодня" if day == today else ""
-    return f"{_SHORT_WEEKDAYS[day.weekday()]}, {day.day}{suffix}"
+    if day == today:
+        return f"<mark>Сегодня</mark> · {_SHORT_WEEKDAYS[day.weekday()]}, {day.day}"
+    return f"{_SHORT_WEEKDAYS[day.weekday()]}, {day.day}"
 
 
 def _slot_groups(
@@ -568,7 +582,7 @@ def _week_summary_line(
     end: date,
     lessons: tuple[Lesson, ...],
 ) -> str:
-    label = "Эта неделя" if week_number == 0 else "Следующая неделя"
+    label = "🗓 Эта неделя" if week_number == 0 else "🔭 Следующая неделя"
     study_days = len({lesson.day for lesson in lessons})
     pair_count = len(_slot_groups_by_day(lessons))
     if not lessons:
@@ -604,18 +618,24 @@ def _has_upcoming(lessons: tuple[Lesson, ...], local_now: datetime) -> bool:
 def _day_status(envelope: ScheduleEnvelope, local_now: datetime) -> str:
     lessons = _lessons_on(envelope.lessons, local_now.date())
     if not lessons:
-        return "Сегодня занятий нет"
+        return "☕ <b>Сегодня без пар</b><br><i>Можно выдохнуть</i>"
     now_time = local_now.time().replace(tzinfo=None)
     current = next(
         (item for item in lessons if item.starts_at <= now_time < item.ends_at),
         None,
     )
     if current is not None:
-        return f"Сейчас · <b>{escape(current.subject)}</b> · до {current.ends_at:%H:%M}"
+        return (
+            f"🟢 <mark><b>Сейчас</b></mark> · {escape(current.subject)}"
+            f"<br><i>До {current.ends_at:%H:%M}</i>"
+        )
     upcoming = next((item for item in lessons if item.starts_at > now_time), None)
     if upcoming is not None:
-        return f"Следующая · <b>{upcoming.starts_at:%H:%M}</b> · {escape(upcoming.subject)}"
-    return "На сегодня всё"
+        return (
+            f"🔵 <b>Следующая · {upcoming.starts_at:%H:%M}</b>"
+            f"<br>{escape(upcoming.subject)}"
+        )
+    return "🌙 <b>На сегодня всё</b><br><i>До завтра</i>"
 
 
 def _compact_slot_location(lessons: tuple[Lesson, ...]) -> str:
@@ -627,8 +647,23 @@ def _compact_slot_location(lessons: tuple[Lesson, ...]) -> str:
     return " / ".join(values)
 
 
-def _rich_lesson_table(lessons: tuple[Lesson, ...], *, group_key: str) -> str:
+def _rich_lesson_table(
+    lessons: tuple[Lesson, ...],
+    *,
+    group_key: str,
+    local_now: datetime,
+) -> str:
     rows = ["<tr><th>Время</th><th>Пара</th></tr>"]
+    current_time = local_now.time().replace(tzinfo=None)
+    today = local_now.date()
+    upcoming_start = next(
+        (
+            lesson.starts_at
+            for lesson in lessons
+            if lesson.day == today and lesson.starts_at > current_time
+        ),
+        None,
+    )
     for lesson in lessons:
         details: list[str] = []
         if lesson.lesson_type:
@@ -646,12 +681,27 @@ def _rich_lesson_table(lessons: tuple[Lesson, ...], *, group_key: str) -> str:
             if lesson.teacher and lesson.teacher.strip()
             else "Преподаватель не указан"
         )
-        lesson_cell = f"<b>{escape(lesson.subject.strip())}</b>"
+        is_current = (
+            lesson.day == today and lesson.starts_at <= current_time < lesson.ends_at
+        )
+        is_next = lesson.day == today and lesson.starts_at == upcoming_start
+        subject = f"<b>{escape(lesson.subject.strip())}</b>"
+        if is_current:
+            subject = f"<mark>{subject}</mark>"
+        elif is_next:
+            subject = f"<u>{subject}</u>"
+        lesson_cell = subject
         if details:
             lesson_cell += f"<br>{' · '.join(details)}"
         lesson_cell += f"<br><i>{teacher}</i>"
+        if is_current:
+            state_label = "<mark>Сейчас</mark><br>"
+        elif is_next:
+            state_label = "<u>Далее</u><br>"
+        else:
+            state_label = ""
         rows.append(
-            f'<tr><td align="center" valign="top"><b>{lesson.starts_at:%H:%M}</b>'
+            f'<tr><td align="center" valign="top">{state_label}<b>{lesson.starts_at:%H:%M}</b>'
             f"<br><i>{lesson.ends_at:%H:%M}</i></td>"
             f'<td align="left" valign="top">{lesson_cell}</td></tr>'
         )
@@ -714,17 +764,17 @@ def _rich_change_card(changes: tuple[ScheduleChange, ...], *, is_open: bool) -> 
     changed_kinds = {change.kind for change in changes}
     if any(change.kind is ChangeKind.CANCELLED for change in changes):
         blocks.append(
-            _rich_event_table(lesson, caption="Отменённая пара", highlighted=changed_kinds)
+            _rich_event_table(lesson, caption="🚨 Отменённая пара", highlighted=changed_kinds)
         )
     else:
         current = changes[0].after or lesson
         blocks.append(
-            _rich_event_table(current, caption="Актуальная пара", highlighted=changed_kinds)
+            _rich_event_table(current, caption="✨ Актуальная пара", highlighted=changed_kinds)
         )
         previous = changes[0].before
         if previous is not None and all(change.kind is not ChangeKind.ADDED for change in changes):
             blocks.append(
-                "<details><summary>Прежний вариант</summary>"
+                "<details><summary>↩️ Прежний вариант</summary>"
                 f"{_rich_event_table(previous, caption=None, highlighted=set())}</details>"
             )
     blocks.append("</details>")
@@ -734,17 +784,20 @@ def _rich_change_card(changes: tuple[ScheduleChange, ...], *, is_open: bool) -> 
 def _change_status(changes: tuple[ScheduleChange, ...]) -> str:
     kinds = {change.kind for change in changes}
     if ChangeKind.ADDED in kinds:
-        return "Добавлена"
+        return "🆕 Добавлена"
     if ChangeKind.CANCELLED in kinds:
-        return "Отменена"
-    return "Обновлена"
+        return "🚨 Отменена"
+    return "🔄 Обновлена"
 
 
 def _rich_change_summary(changes: tuple[ScheduleChange, ...]) -> str:
     if any(change.kind is ChangeKind.ADDED for change in changes):
-        return "<blockquote><mark>Новая пара добавлена в расписание</mark></blockquote>"
+        return "<blockquote><mark><b>Новая пара</b></mark> добавлена в расписание</blockquote>"
     if any(change.kind is ChangeKind.CANCELLED for change in changes):
-        return "<blockquote><b>Эта пара отменена</b></blockquote>"
+        return (
+            "<blockquote><mark><b>Пара отменена</b></mark><br>"
+            "Проверьте дату и время ниже.</blockquote>"
+        )
     rows: list[str] = []
     for change in changes:
         assert change.before is not None and change.after is not None

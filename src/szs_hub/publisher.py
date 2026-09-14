@@ -447,25 +447,26 @@ async def publish_dispatched(
 
         publish_digest = should_publish_digest(state, envelope, local_now=local_now)
         calendar_message_id = state.calendar_message_id
-        if changes or publish_digest:
-            calendar_message_id, calendar_changed = await _upsert_calendar(
-                schedule_destination,
-                chat_id=chat_id,
-                topic_id=topic_id,
-                message_id=calendar_message_id,
-                rich_html=render_rich_digest(
-                    envelope,
-                    local_now=local_now,
-                    calendar_feed_url=settings.schedule_calendar_url,
-                ),
-                fallback_html=render_digest_fallback(
-                    envelope,
-                    local_now=local_now,
-                    calendar_feed_url=settings.schedule_calendar_url,
-                ),
-            )
-            if calendar_changed:
-                sent.append(calendar_message_id)
+        # Refresh the single pinned card on every accepted snapshot. Besides schedule
+        # changes, the card contains time-sensitive "Now" and "Next" states.
+        calendar_message_id, calendar_changed = await _upsert_calendar(
+            schedule_destination,
+            chat_id=chat_id,
+            topic_id=topic_id,
+            message_id=calendar_message_id,
+            rich_html=render_rich_digest(
+                envelope,
+                local_now=local_now,
+                calendar_feed_url=settings.schedule_calendar_url,
+            ),
+            fallback_html=render_digest_fallback(
+                envelope,
+                local_now=local_now,
+                calendar_feed_url=settings.schedule_calendar_url,
+            ),
+        )
+        if calendar_changed:
+            sent.append(calendar_message_id)
 
         if changes:
             sent.append(

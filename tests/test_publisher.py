@@ -331,7 +331,7 @@ async def test_github_receiver_sends_forced_rich_digest_and_persists_state(
     assert message_ids == (78,)
     assert state_path.is_file()
     assert len(destination.rich_sent) == 1
-    assert "<h1>Пятница</h1>" in destination.rich_sent[0][2]
+    assert "<h1>✨ Пятница</h1>" in destination.rich_sent[0][2]
     assert "<table bordered striped compact>" in destination.rich_sent[0][2]
     assert "<details" in destination.rich_sent[0][2]
     assert "Иванов И. И." in destination.rich_sent[0][2]
@@ -368,7 +368,7 @@ async def test_forced_digest_rebaselines_without_false_added_changes(tmp_path: P
     assert message_ids == (78,)
     assert len(destination.rich_sent) == 1
     assert "Расписание изменилось" not in destination.rich_sent[0][2]
-    assert "<h1>Пятница</h1>" in destination.rich_sent[0][2]
+    assert "<h1>✨ Пятница</h1>" in destination.rich_sent[0][2]
     assert load_delivery_state(state_path).previous == current
 
 
@@ -430,8 +430,34 @@ async def test_evening_edits_calendar_and_sends_compact_tomorrow_preview(tmp_pat
     assert message_ids == (70, 77)
     assert destination.rich_edited[0][1] == 70
     assert destination.sent is not None
-    assert destination.sent[2].startswith("<b>Завтра · 12 сентября</b>")
+    assert destination.sent[2].startswith("<b>🌙 Завтра · 12 сентября</b>")
     assert "https://t.me/c/1/42/70" in destination.sent[2]
+
+
+@pytest.mark.asyncio
+async def test_regular_snapshot_refreshes_live_status_on_the_pinned_card(tmp_path: Path) -> None:
+    state_path = tmp_path / "state.json"
+    previous = _reminder_envelope()
+    current = replace(previous, fetched_at=previous.fetched_at + timedelta(hours=1))
+    save_delivery_state(
+        state_path,
+        ScheduleDeliveryState(previous=previous, calendar_message_id=70),
+    )
+    destination = FakeDestination()
+
+    message_ids = await publish_dispatched(
+        _reminder_settings(),
+        text_b64=encode_schedule_envelope(current),
+        group_key=current.group_key,
+        destination=destination,
+        state_path=state_path,
+        clock=lambda: datetime(2026, 9, 11, 8, tzinfo=UTC),
+    )
+
+    assert message_ids == (70,)
+    assert destination.rich_edited[0][1] == 70
+    assert "<mark>Сейчас</mark>" in destination.rich_edited[0][2]
+    assert destination.rich_sent == []
 
 
 @pytest.mark.asyncio
@@ -508,7 +534,8 @@ async def test_due_reminder_converts_utc_to_moscow_routes_and_deduplicates(
     assert len(destination.sent_calls) == 1
     chat_id, topic_id, text = destination.sent_calls[0]
     assert (chat_id, topic_id) == (-1001, 42)
-    assert "Первая в 10:45 · через 2 часа" in text
+    assert "🌅 Первая пара в 10:45" in text
+    assert "<i>Через 2 часа</i>" in text
     assert "10:45" in text
     assert load_delivery_state(state_path).sent_reminders == (
         "first:2026-09-11:10:45:00",
