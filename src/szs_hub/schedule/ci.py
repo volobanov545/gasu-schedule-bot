@@ -704,7 +704,7 @@ def _rich_lesson_table(
         else:
             state_label = ""
         time_cell_tag = "th" if is_next else "td"
-        row_span = 4 if subgroup else 3
+        row_span = 5 if subgroup else 4
         rows.append(
             f'<tr><{time_cell_tag} rowspan="{row_span}" '
             'align="center" valign="middle">'
@@ -712,9 +712,14 @@ def _rich_lesson_table(
             f"<br><i>{lesson.ends_at:%H:%M}</i></{time_cell_tag}>"
             f'<th colspan="3" align="center" valign="middle">{subject}</th></tr>'
             '<tr>'
-            f'<td align="center" valign="middle"><i>Тип</i><br>{lesson_type}</td>'
-            f'<td align="center" valign="middle"><i>Ауд.</i><br><b>{room}</b></td>'
-            f'<td align="center" valign="middle"><i>Корп.</i><br><b>{building}</b></td>'
+            '<th align="center" valign="middle">Тип</th>'
+            '<th align="center" valign="middle">Ауд.</th>'
+            '<th align="center" valign="middle">Корп.</th>'
+            '</tr>'
+            '<tr>'
+            f'<td align="center" valign="middle">{lesson_type}</td>'
+            f'<td align="center" valign="middle"><b>{room}</b></td>'
+            f'<td align="center" valign="middle"><b>{building}</b></td>'
             '</tr>'
             f'<tr><td colspan="3" align="center" valign="middle">'
             f"👤 <i>{teacher}</i></td></tr>"

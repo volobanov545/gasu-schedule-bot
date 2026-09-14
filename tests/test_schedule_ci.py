@@ -102,11 +102,14 @@ def test_rich_digest_uses_article_primitives_and_escapes_source_data() -> None:
     assert "<hr/>" in rendered
     assert "🗓 Эта неделя" in rendered
     assert "<table bordered compact>" in rendered
-    assert '<td rowspan="3" align="center" valign="middle">' in rendered
+    assert '<td rowspan="4" align="center" valign="middle">' in rendered
     assert '<th colspan="3" align="center" valign="middle">' in rendered
-    assert '<i>Тип</i><br>Практика' in rendered
-    assert '<i>Ауд.</i><br><b>312</b>' in rendered
-    assert '<i>Корп.</i><br><b>1</b>' in rendered
+    assert '<th align="center" valign="middle">Тип</th>' in rendered
+    assert '<th align="center" valign="middle">Ауд.</th>' in rendered
+    assert '<th align="center" valign="middle">Корп.</th>' in rendered
+    assert '<td align="center" valign="middle">Практика</td>' in rendered
+    assert '<td align="center" valign="middle"><b>312</b></td>' in rendered
+    assert '<td align="center" valign="middle"><b>1</b></td>' in rendered
     assert '<td colspan="3" align="center" valign="middle">👤' in rendered
     assert "<th>Где</th>" not in rendered
     assert "<details" in rendered
@@ -125,7 +128,7 @@ def test_rich_digest_gives_optional_subgroup_its_own_full_width_row() -> None:
         local_now=datetime(2026, 9, 1, 20, 30, tzinfo=UTC),
     )
 
-    assert '<td rowspan="4" align="center" valign="middle">' in rendered
+    assert '<td rowspan="5" align="center" valign="middle">' in rendered
     assert "👥 <i>Подгруппа 1</i>" in rendered
 
 
@@ -173,7 +176,7 @@ def test_next_lesson_colors_only_its_time_cell() -> None:
     )
 
     assert (
-        '<th rowspan="3" align="center" valign="middle">'
+        '<th rowspan="4" align="center" valign="middle">'
         "<mark><b>Далее</b></mark><br><b>10:45</b>"
     ) in rendered
     assert "<u><b>Геодезия</b></u>" not in rendered
