@@ -653,7 +653,7 @@ def _rich_lesson_table(
     group_key: str,
     local_now: datetime,
 ) -> str:
-    rows = ["<tr><th>Время</th><th>Пара</th></tr>"]
+    rows: list[str] = []
     current_time = local_now.time().replace(tzinfo=None)
     today = local_now.date()
     upcoming_start = next(
@@ -665,21 +665,32 @@ def _rich_lesson_table(
         None,
     )
     for lesson in lessons:
-        details: list[str] = []
-        if lesson.lesson_type:
-            details.append(escape(lesson.lesson_type.strip()))
-        location = _inline_location(lesson)
-        if location:
-            details.append(location)
-        if (
-            lesson.subgroup
-            and lesson.subgroup.strip().casefold() != group_key.strip().casefold()
-        ):
-            details.append(escape(lesson.subgroup.strip()))
         teacher = (
             escape(lesson.teacher.strip())
             if lesson.teacher and lesson.teacher.strip()
             else "Преподаватель не указан"
+        )
+        lesson_type = (
+            escape(lesson.lesson_type.strip())
+            if lesson.lesson_type and lesson.lesson_type.strip()
+            else "—"
+        )
+        room = (
+            escape(lesson.room.strip())
+            if lesson.room and lesson.room.strip()
+            else "—"
+        )
+        building = (
+            escape(lesson.building.strip())
+            if lesson.building and lesson.building.strip()
+            else "—"
+        )
+        subgroup = (
+            escape(lesson.subgroup.strip())
+            if lesson.subgroup
+            and lesson.subgroup.strip()
+            and lesson.subgroup.strip().casefold() != group_key.strip().casefold()
+            else None
         )
         is_current = (
             lesson.day == today and lesson.starts_at <= current_time < lesson.ends_at
@@ -690,34 +701,32 @@ def _rich_lesson_table(
             subject = f"<mark>{subject}</mark>"
         elif is_next:
             subject = f"<u>{subject}</u>"
-        lesson_cell = subject
-        if details:
-            lesson_cell += f"<br>{' · '.join(details)}"
-        lesson_cell += f"<br><i>{teacher}</i>"
         if is_current:
             state_label = "<mark>Сейчас</mark><br>"
         elif is_next:
             state_label = "<u>Далее</u><br>"
         else:
             state_label = ""
+        row_span = 4 if subgroup else 3
         rows.append(
-            f'<tr><td align="center" valign="top">{state_label}<b>{lesson.starts_at:%H:%M}</b>'
+            f'<tr><td rowspan="{row_span}" align="center" valign="middle">'
+            f"{state_label}<b>{lesson.starts_at:%H:%M}</b>"
             f"<br><i>{lesson.ends_at:%H:%M}</i></td>"
-            f'<td align="left" valign="top">{lesson_cell}</td></tr>'
+            f'<th colspan="3" align="left" valign="middle">{subject}</th></tr>'
+            '<tr>'
+            f'<td align="center" valign="middle"><i>Тип</i><br>{lesson_type}</td>'
+            f'<td align="center" valign="middle"><i>Ауд.</i><br><b>{room}</b></td>'
+            f'<td align="center" valign="middle"><i>Корп.</i><br><b>{building}</b></td>'
+            '</tr>'
+            f'<tr><td colspan="3" align="left" valign="middle">'
+            f"👤 <i>{teacher}</i></td></tr>"
         )
-    return f"<table bordered striped compact>{''.join(rows)}</table>"
-
-
-def _inline_location(lesson: Lesson) -> str:
-    room = escape(lesson.room.strip()) if lesson.room else ""
-    building = escape(lesson.building.strip()) if lesson.building else ""
-    if room and building:
-        return f"ауд. {room} · корп. {building}"
-    if room:
-        return f"ауд. {room}"
-    if building:
-        return f"корп. {building}"
-    return ""
+        if subgroup:
+            rows.append(
+                f'<tr><td colspan="3" align="left" valign="middle">'
+                f"👥 <i>{subgroup}</i></td></tr>"
+            )
+    return f"<table bordered compact>{''.join(rows)}</table>"
 
 
 def _location(lesson: Lesson) -> str:

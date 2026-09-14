@@ -332,7 +332,9 @@ async def test_github_receiver_sends_forced_rich_digest_and_persists_state(
     assert state_path.is_file()
     assert len(destination.rich_sent) == 1
     assert "<h1>🗓 Расписание</h1>" in destination.rich_sent[0][2]
-    assert "<table bordered striped compact>" in destination.rich_sent[0][2]
+    assert "<table bordered compact>" in destination.rich_sent[0][2]
+    assert 'rowspan="3" align="center" valign="middle"' in destination.rich_sent[0][2]
+    assert 'colspan="3" align="left" valign="middle"' in destination.rich_sent[0][2]
     assert "<details" in destination.rich_sent[0][2]
     assert "Иванов И. И." in destination.rich_sent[0][2]
     assert destination.pinned == [(-1001, 78)]

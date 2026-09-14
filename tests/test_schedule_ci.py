@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, date, datetime, time
 
 from szs_hub.domain.schedule import ChangeKind, Lesson
@@ -100,14 +101,32 @@ def test_rich_digest_uses_article_primitives_and_escapes_source_data() -> None:
     assert rendered.startswith("<h1>🗓 Расписание</h1><p><b>3-СУЗСс-3</b>")
     assert "<hr/>" in rendered
     assert "🗓 Эта неделя" in rendered
-    assert "<table bordered striped compact>" in rendered
-    assert "<th>Время</th><th>Пара</th>" in rendered
+    assert "<table bordered compact>" in rendered
+    assert '<td rowspan="3" align="center" valign="middle">' in rendered
+    assert '<th colspan="3" align="left" valign="middle">' in rendered
+    assert '<i>Тип</i><br>Практика' in rendered
+    assert '<i>Ауд.</i><br><b>312</b>' in rendered
+    assert '<i>Корп.</i><br><b>1</b>' in rendered
+    assert '<td colspan="3" align="left" valign="middle">👤' in rendered
     assert "<th>Где</th>" not in rendered
     assert "<details" in rendered
     assert "<tg-button-row" not in rendered
     assert "https://" not in rendered
     assert "&lt;ЖБК &amp; геодезия&gt;" in rendered
     assert "Иванов Иван Иванович" in rendered
+
+
+def test_rich_digest_gives_optional_subgroup_its_own_full_width_row() -> None:
+    lesson = replace(_lesson(date(2026, 9, 2)), subgroup="Подгруппа 1")
+    envelope = _envelope(date(2026, 8, 31), lesson)
+
+    rendered = render_rich_digest(
+        envelope,
+        local_now=datetime(2026, 9, 1, 20, 30, tzinfo=UTC),
+    )
+
+    assert '<td rowspan="4" align="center" valign="middle">' in rendered
+    assert "👥 <i>Подгруппа 1</i>" in rendered
 
 
 def test_calendar_card_links_to_the_live_phone_feed() -> None:
