@@ -97,7 +97,7 @@ def test_rich_digest_uses_article_primitives_and_escapes_source_data() -> None:
         local_now=datetime(2026, 9, 1, 20, 30, tzinfo=UTC),
     )
 
-    assert rendered.startswith("<h1>✨ Пятница</h1><p><b>3-СУЗСс-3</b>")
+    assert rendered.startswith("<h1>🗓 Расписание</h1><p><b>3-СУЗСс-3</b>")
     assert "<hr/>" in rendered
     assert "🗓 Эта неделя" in rendered
     assert "<table bordered striped compact>" in rendered
@@ -157,7 +157,7 @@ def test_nighttime_forced_digest_keeps_the_upcoming_current_day() -> None:
     )
 
     assert rendered.startswith(
-        "<h1>✨ Пятница</h1><p><b>3-СУЗСс-3</b> · <i>7–20 сентября</i></p>"
+        "<h1>🗓 Расписание</h1><p><b>3-СУЗСс-3</b> · <i>7–20 сентября</i></p>"
     )
     assert "Пятничная пара" in rendered
     assert "<mark>Сегодня</mark> · Пт, 11" in rendered

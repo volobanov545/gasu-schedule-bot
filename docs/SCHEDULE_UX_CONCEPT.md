@@ -320,3 +320,8 @@ https://core.telegram.org/bots/features#messages-and-formatting.
 Официальные источники: https://core.telegram.org/bots/api#rich-messages,
 https://core.telegram.org/bots/features#messages-and-formatting,
 https://core.telegram.org/api/animated-emojis и https://core.telegram.org/api/effects.
+
+После проверки на живом клиенте брендовый заголовок `Пятница` заменён на
+`🗓 Расписание`. «Пятница» уже видна как имя отправителя, а внутри карточки воспринималась
+как неверный текущий день недели. Нейтральный функциональный заголовок устраняет эту
+двусмысленность; актуальное состояние дня остаётся в расположенном ниже status-блоке.

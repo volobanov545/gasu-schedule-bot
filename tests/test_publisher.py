@@ -331,7 +331,7 @@ async def test_github_receiver_sends_forced_rich_digest_and_persists_state(
     assert message_ids == (78,)
     assert state_path.is_file()
     assert len(destination.rich_sent) == 1
-    assert "<h1>✨ Пятница</h1>" in destination.rich_sent[0][2]
+    assert "<h1>🗓 Расписание</h1>" in destination.rich_sent[0][2]
     assert "<table bordered striped compact>" in destination.rich_sent[0][2]
     assert "<details" in destination.rich_sent[0][2]
     assert "Иванов И. И." in destination.rich_sent[0][2]
@@ -368,7 +368,7 @@ async def test_forced_digest_rebaselines_without_false_added_changes(tmp_path: P
     assert message_ids == (78,)
     assert len(destination.rich_sent) == 1
     assert "Расписание изменилось" not in destination.rich_sent[0][2]
-    assert "<h1>✨ Пятница</h1>" in destination.rich_sent[0][2]
+    assert "<h1>🗓 Расписание</h1>" in destination.rich_sent[0][2]
     assert load_delivery_state(state_path).previous == current
 
 

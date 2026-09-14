@@ -203,7 +203,7 @@ def render_rich_digest(
     start = max(envelope.horizon_start, current_monday)
     end = envelope.horizon_end
     blocks = [
-        "<h1>✨ Пятница</h1>",
+        "<h1>🗓 Расписание</h1>",
         f"<p><b>{escape(envelope.group_key)}</b> · <i>{_date_range(start, end)}</i></p>",
         f"<aside>{_day_status(envelope, local_now)}</aside>",
         "<hr/>",
