@@ -205,8 +205,8 @@ cannot distinguish a genuine edit from the next week merely entering the source 
 
 **Decision.** GitVerse originally fetched a dated two-week schedule four times per day;
 after observed multi-hour CI scheduling delays this cadence was superseded on 2026-09-16
-by half-hour checks from 06:00 through 21:30 Europe/Moscow, Monday-Saturday, exact
-transition ticks, and three Sunday checks. GitHub keeps the last validated envelope in a
+by half-hour checks from 07:00 through 20:30 Europe/Moscow, Monday-Saturday, exact
+reminder and lesson-transition ticks, and three Sunday checks. GitHub keeps the last validated envelope in a
 tiny Actions cache.
 Only dates present in both the old and new horizons are semantically compared. Dates
 newly appearing beyond the previous horizon are publication of the next week, not a

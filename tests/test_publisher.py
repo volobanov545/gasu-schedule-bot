@@ -659,9 +659,11 @@ def test_ci_bridge_workflows_keep_telegram_token_out_of_gitverse() -> None:
     )
 
     for cron in (
-        "0,30 3-18 * * 1-6",
+        "0,30 4-17 * * 1-6",
         "15 7,13 * * 1-6",
         "45 10,16 * * 1-6",
+        "45 7,13 * * 1-6",
+        "15 9,15 * * 1-6",
         "0 6,12,18 * * 0",
     ):
         assert f'cron: "{cron}"' in gitverse

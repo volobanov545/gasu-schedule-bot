@@ -170,6 +170,50 @@ def test_current_lesson_gets_a_live_visual_accent() -> None:
     assert "<mark><b>Геодезия</b></mark>" not in rendered
 
 
+def test_live_card_progresses_from_next_to_current_and_finished() -> None:
+    day = date(2026, 9, 14)
+    first = replace(
+        _lesson(day),
+        starts_at=time(9),
+        ends_at=time(10, 30),
+        subject="Первая",
+        source_id="first",
+    )
+    second = replace(
+        _lesson(day),
+        subject="Вторая",
+        source_id="second",
+    )
+    envelope = _envelope(day, first, second)
+
+    before = render_rich_digest(
+        envelope,
+        local_now=datetime(2026, 9, 14, 8, 50, tzinfo=UTC),
+    )
+    first_active = render_rich_digest(
+        envelope,
+        local_now=datetime(2026, 9, 14, 9, 10, tzinfo=UTC),
+    )
+    between = render_rich_digest(
+        envelope,
+        local_now=datetime(2026, 9, 14, 10, 35, tzinfo=UTC),
+    )
+    second_active = render_rich_digest(
+        envelope,
+        local_now=datetime(2026, 9, 14, 10, 50, tzinfo=UTC),
+    )
+    finished = render_rich_digest(
+        envelope,
+        local_now=datetime(2026, 9, 14, 12, 16, tzinfo=UTC),
+    )
+
+    assert "🔵 <b>Следующая · 09:00</b>" in before
+    assert "🟢 <mark><b>Сейчас</b></mark> · Первая" in first_active
+    assert "🔵 <b>Следующая · 10:45</b>" in between
+    assert "🟢 <mark><b>Сейчас</b></mark> · Вторая" in second_active
+    assert "🌙 <b>На сегодня всё</b>" in finished
+
+
 def test_next_lesson_colors_only_its_time_cell() -> None:
     envelope = _envelope(date(2026, 9, 14), _lesson(date(2026, 9, 14)))
 
