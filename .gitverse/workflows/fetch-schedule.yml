@@ -14,17 +14,10 @@ on:
         default: false
         type: boolean
   schedule:
-    # UTC. Main Russia-reachable source checks run every 30 minutes from
-    # 07:00 through 20:30 Moscow time, Monday-Saturday.
-    - cron: "0,30 4-17 * * 1-6"
-    # Extra ticks land exactly 15 minutes before lesson endings that do not
-    # already coincide with the half-hour cadence (10:15, 13:45, 16:15, 19:45 MSK).
-    - cron: "15 7,13 * * 1-6"
-    - cron: "45 10,16 * * 1-6"
-    # Refresh the pinned card exactly at lesson transitions outside the
-    # half-hour grid (10:45, 12:15, 16:45, 18:15 MSK).
-    - cron: "45 7,13 * * 1-6"
-    - cron: "15 9,15 * * 1-6"
+    # UTC: every 15 minutes, 07:00-20:45 Moscow, Monday-Saturday.
+    # Starts two hours before the earliest 09:00 class; covers every lesson
+    # boundary and the reminder 15 minutes before the current class ends.
+    - cron: "0,15,30,45 4-17 * * 1-6"
     # Sunday needs change detection, but no minute-by-minute class reminders.
     - cron: "0 6,12,18 * * 0"
 

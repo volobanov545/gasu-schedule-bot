@@ -121,7 +121,7 @@ class FakeBridge:
         self.dispatched = (repository, token, text_b64, group_key)
 
 
-class FailingDestination:
+class FailingDestination(FakeDestination):
     async def send(self, *, chat_id: int, topic_id: int, text: str) -> int:
         raise RuntimeError("Telegram is unavailable")
 
@@ -604,6 +604,32 @@ async def test_failed_due_reminder_does_not_persist_its_marker(tmp_path: Path) -
 
 
 @pytest.mark.asyncio
+async def test_backup_tick_updates_active_card_even_without_any_due_notification(
+    tmp_path: Path,
+) -> None:
+    state_path = tmp_path / "state.json"
+    initial = ScheduleDeliveryState(previous=_reminder_envelope(), calendar_message_id=70)
+    save_delivery_state(state_path, initial)
+    destination = FakeDestination()
+    settings = _reminder_settings().model_copy(update={
+        "schedule_calendar_url": "https://example.org/calendar.ics",
+    })
+    result = await publish_due_reminder(
+        settings, destination=destination, state_path=state_path,
+        clock=lambda: datetime(2026, 9, 11, 8, 0, tzinfo=UTC),  # 11:00 Moscow
+    )
+    assert result == (70,)
+    assert destination.sent_calls == []
+    assert destination.rich_sent == []
+    rich = destination.rich_edited[0][2]
+    assert "🟢 <b>Сейчас</b>" in rich
+    assert "ещё 1 ч 15 мин" in rich
+    assert "https://example.org/calendar.ics" in rich
+    assert "<mark>" not in rich
+    assert load_delivery_state(state_path) == initial
+
+
+@pytest.mark.asyncio
 async def test_rich_destination_uses_new_api_and_classic_fallback() -> None:
     seen: list[str] = []
 
@@ -659,11 +685,7 @@ def test_ci_bridge_workflows_keep_telegram_token_out_of_gitverse() -> None:
     )
 
     for cron in (
-        "0,30 4-17 * * 1-6",
-        "15 7,13 * * 1-6",
-        "45 10,16 * * 1-6",
-        "45 7,13 * * 1-6",
-        "15 9,15 * * 1-6",
+        "0,15,30,45 4-17 * * 1-6",
         "0 6,12,18 * * 0",
     ):
         assert f'cron: "{cron}"' in gitverse

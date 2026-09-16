@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import UTC, date, datetime, time
 
+import pytest
+
 from szs_hub.domain.schedule import ChangeKind, Lesson
 from szs_hub.schedule.ci import (
     ScheduleDeliveryState,
@@ -165,7 +167,7 @@ def test_current_lesson_gets_a_live_visual_accent() -> None:
         local_now=datetime(2026, 9, 14, 11, tzinfo=UTC),
     )
 
-    assert "🟢 <mark><b>Сейчас</b></mark>" in rendered
+    assert "🟢 <b>Сейчас</b>" in rendered
     assert "<b>Сейчас</b><br><b>10:45</b>" in rendered
     assert "<mark><b>Геодезия</b></mark>" not in rendered
 
@@ -208,9 +210,9 @@ def test_live_card_progresses_from_next_to_current_and_finished() -> None:
     )
 
     assert "🔵 <b>Следующая · 09:00</b>" in before
-    assert "🟢 <mark><b>Сейчас</b></mark> · Первая" in first_active
+    assert "🟢 <b>Сейчас</b> · Первая" in first_active
     assert "🔵 <b>Следующая · 10:45</b>" in between
-    assert "🟢 <mark><b>Сейчас</b></mark> · Вторая" in second_active
+    assert "🟢 <b>Сейчас</b> · Вторая" in second_active
     assert "🌙 <b>На сегодня всё</b>" in finished
 
 
@@ -224,7 +226,7 @@ def test_next_lesson_colors_only_its_time_cell() -> None:
 
     assert (
         '<th rowspan="4" align="center" valign="middle">'
-        "<mark><b>Далее</b></mark><br><b>10:45</b>"
+        "<b>Далее</b><br><b>10:45</b>"
     ) in rendered
     assert "<u><b>Геодезия</b></u>" not in rendered
 
@@ -244,8 +246,8 @@ def test_nighttime_forced_digest_keeps_the_upcoming_current_day() -> None:
         "<h1>🗓 Расписание</h1><p><b>3-СУЗСс-3</b> · <i>7–20 сентября</i></p>"
     )
     assert "Пятничная пара" in rendered
-    assert "<mark>Сегодня</mark> (1 пара)" in rendered
-    assert "<mark>Сегодня</mark> ·" not in rendered
+    assert "<b>Сегодня</b> (1 пара)" in rendered
+    assert "<b>Сегодня</b> ·" not in rendered
     assert "<details open>" in rendered
 
 
@@ -273,7 +275,7 @@ def test_change_card_shows_delta_and_complete_current_and_previous_event() -> No
     assert "<details open>" in rich
     assert "Аудитория" in rich
     assert "Преподаватель" in rich
-    assert "<s>312</s> → <mark>407</mark>" in rich
+    assert "<s>312</s> → <b>407</b>" in rich
     assert "<caption><b>✨ Актуальная пара</b></caption>" in rich
     assert "Геодезия" in rich
     assert "Практика" in rich
@@ -388,6 +390,73 @@ def test_evening_summary_is_short_and_links_to_pinned_calendar() -> None:
     assert "1 пара · 10:45–12:15" in rendered
     assert "Открыть календарь" in rendered
     assert "Иванов" not in rendered
+
+
+@pytest.mark.parametrize("hour,minute,second,expected", [
+    (8, 44, 59, None),  # Never notify before the two-hour threshold.
+    (8, 45, 0, "Через 2 часа"),
+    (9, 30, 1, "Через 1 ч 15 мин"),  # Catch up after a delayed CI tick.
+    (10, 44, 59, "Через 1 мин"),  # Do not round a future class down to zero.
+    (10, 45, 0, None),
+])
+def test_first_reminder_uses_actual_time_and_never_arrives_after_start(
+    hour: int, minute: int, second: int, expected: str | None,
+) -> None:
+    day = date(2026, 9, 11)
+    envelope = _envelope(date(2026, 9, 7), _lesson(day))
+    reminder = due_reminder(
+        envelope,
+        local_now=datetime(2026, 9, 11, hour, minute, second, tzinfo=UTC),
+        sent_markers=(),
+    )
+    if expected is None:
+        assert reminder is None
+    else:
+        assert reminder is not None
+        assert expected in reminder[1]
+
+
+@pytest.mark.parametrize("hour,minute,expected", [
+    (10, 14, None), (10, 15, "Через 30 мин"),
+    (10, 35, "Через 10 мин"), (10, 45, None),
+])
+def test_transition_reminder_catches_up_in_break_but_not_after_start(
+    hour: int, minute: int, expected: str | None,
+) -> None:
+    day = date(2026, 9, 11)
+    first = replace(_lesson(day), starts_at=time(9), ends_at=time(10, 30), source_id="first")
+    envelope = _envelope(date(2026, 9, 7), first, _lesson(day))
+    reminder = due_reminder(
+        envelope,
+        local_now=datetime(2026, 9, 11, hour, minute, tzinfo=UTC),
+        sent_markers=(),
+    )
+    if expected is None:
+        assert reminder is None
+    else:
+        assert reminder is not None
+        assert expected in reminder[1]
+        assert due_reminder(
+            envelope,
+            local_now=datetime(2026, 9, 11, hour, minute, tzinfo=UTC),
+            sent_markers=(reminder[0],),
+        ) is None
+
+
+def test_live_countdown_has_no_marker_and_distinguishes_source_check_time() -> None:
+    day = date(2026, 9, 11)
+    envelope = _envelope(date(2026, 9, 7), _lesson(day))
+    before = render_rich_digest(
+        envelope, local_now=datetime(2026, 9, 11, 10, 30, 1, tzinfo=UTC),
+    )
+    during = render_rich_digest(
+        envelope, local_now=datetime(2026, 9, 11, 11, tzinfo=UTC),
+    )
+    assert "Через 15 мин" in before
+    assert "ещё 1 ч 15 мин" in during
+    assert "Статус на 11:00 МСК" in during
+    assert "Сайт проверен" in during
+    assert "<mark>" not in before + during
 
 
 def test_no_transition_reminder_after_last_class() -> None:

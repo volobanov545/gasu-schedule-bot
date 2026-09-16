@@ -8,6 +8,7 @@ import json
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from html import escape
+from math import ceil
 from pathlib import Path
 from typing import Any
 
@@ -266,7 +267,10 @@ def render_rich_digest(
             f'<tg-button type="url" style="primary" url="{escape(calendar_feed_url)}">'
             "📲 Подключить календарь</tg-button></tg-button-row>"
         )
-    blocks.append(f"<footer>Обновлено {fetched_local:%d.%m · %H:%M} МСК</footer>")
+    blocks.append(
+        f"<footer>Статус на {local_now:%H:%M} МСК<br>"
+        f"Сайт проверен {fetched_local:%d.%m · %H:%M} МСК</footer>"
+    )
     return "".join(blocks)
 
 
@@ -387,19 +391,20 @@ def due_reminder(
     for (starts_at, ends_at), _current_lessons in ordered:
         starts = _local_lesson_time(local_now, starts_at)
         ends = _local_lesson_time(local_now, ends_at)
-        minutes_left = int((ends - local_now).total_seconds() // 60)
-        if starts <= local_now < ends and 0 <= minutes_left <= 25:
+        # A delayed CI tick may land in the break. Catch up only while the
+        # next class has not started; never send a reminder for a past class.
+        if starts <= local_now and local_now >= ends - timedelta(minutes=15):
             next_blocks = [item for item in ordered if item[0][0] >= ends_at]
             if not next_blocks:
                 return None
             (next_start, _), next_lessons = next_blocks[0]
+            next_at = _local_lesson_time(local_now, next_start)
+            if local_now >= next_at:
+                continue
             marker = f"next:{local_now.date().isoformat()}:{ends_at}:{next_start}"
             if marker in sent:
                 return None
-            until_next = int(
-                (_local_lesson_time(local_now, next_start) - local_now).total_seconds()
-                // 60
-            )
+            until_next = _minutes_until(local_now, next_start)
             text = (
                 f"<b>⏰ Следующая в {next_start:%H:%M}</b>\n"
                 f"<i>Через {_minutes_phrase(until_next)}</i>\n"
@@ -409,9 +414,9 @@ def due_reminder(
 
     first_start = ordered[0][0][0]
     first_at = _local_lesson_time(local_now, first_start)
-    minutes_until = int((first_at - local_now).total_seconds() // 60)
+    minutes_until = _minutes_until(local_now, first_start)
     marker = f"first:{local_now.date().isoformat()}:{first_start}"
-    if 90 <= minutes_until <= 130 and marker not in sent:
+    if first_at - timedelta(hours=2) <= local_now < first_at and marker not in sent:
         text = (
             f"<b>🌅 Первая пара в {first_start:%H:%M}</b>\n"
             f"<i>Через {_minutes_phrase(minutes_until)}</i>\n"
@@ -524,6 +529,10 @@ def _local_lesson_time(local_now: datetime, value: time) -> datetime:
     return datetime.combine(local_now.date(), value, tzinfo=local_now.tzinfo)
 
 
+def _minutes_until(local_now: datetime, value: time) -> int:
+    return max(0, ceil((_local_lesson_time(local_now, value) - local_now).total_seconds() / 60))
+
+
 def _minutes_phrase(minutes: int) -> str:
     if minutes == 120:
         return "2 часа"
@@ -570,7 +579,7 @@ def _short_date_range(start: date, end: date) -> str:
 
 def _day_name(day: date, today: date) -> str:
     if day == today:
-        return "<mark>Сегодня</mark>"
+        return "<b>Сегодня</b>"
     return f"{_SHORT_WEEKDAYS[day.weekday()]} {day.day}"
 
 
@@ -638,14 +647,16 @@ def _day_status(envelope: ScheduleEnvelope, local_now: datetime) -> str:
     )
     if current is not None:
         return (
-            f"🟢 <mark><b>Сейчас</b></mark> · {escape(current.subject)}"
-            f"<br><i>До {current.ends_at:%H:%M}</i>"
+            f"🟢 <b>Сейчас</b> · {escape(current.subject)}"
+            f"<br><i>До {current.ends_at:%H:%M}"
+            f" · ещё {_minutes_phrase(_minutes_until(local_now, current.ends_at))}</i>"
         )
     upcoming = next((item for item in lessons if item.starts_at > now_time), None)
     if upcoming is not None:
         return (
             f"🔵 <b>Следующая · {upcoming.starts_at:%H:%M}</b>"
             f"<br>{escape(upcoming.subject)}"
+            f"<br><i>Через {_minutes_phrase(_minutes_until(local_now, upcoming.starts_at))}</i>"
         )
     return "🌙 <b>На сегодня всё</b><br><i>До завтра</i>"
 
@@ -712,7 +723,7 @@ def _rich_lesson_table(
         if is_current:
             state_label = "<b>Сейчас</b><br>"
         elif is_next:
-            state_label = "<mark><b>Далее</b></mark><br>"
+            state_label = "<b>Далее</b><br>"
         else:
             state_label = ""
         time_cell_tag = "th" if is_next else "td"
@@ -819,7 +830,7 @@ def _rich_change_summary(changes: tuple[ScheduleChange, ...]) -> str:
         return "<blockquote><b>Новая пара</b> добавлена в расписание</blockquote>"
     if any(change.kind is ChangeKind.CANCELLED for change in changes):
         return (
-            "<blockquote><mark><b>Пара отменена</b></mark><br>"
+            "<blockquote><b>Пара отменена</b><br>"
             "Проверьте дату и время ниже.</blockquote>"
         )
     rows: list[str] = []
@@ -828,7 +839,7 @@ def _rich_change_summary(changes: tuple[ScheduleChange, ...]) -> str:
         before, after = _change_values(change)
         rows.append(
             f"<b>{_change_label(change.kind)}</b><br>"
-            f"<s>{escape(before)}</s> → <mark>{escape(after)}</mark>"
+            f"<s>{escape(before)}</s> → <b>{escape(after)}</b>"
         )
     return f"<blockquote>{'<br>'.join(rows)}</blockquote>"
 
@@ -852,7 +863,7 @@ def _rich_event_table(
     for label, value, kind in values:
         rendered = escape(value)
         if kind in highlighted or (kind is ChangeKind.ROOM and ChangeKind.BUILDING in highlighted):
-            rendered = f"<mark>{rendered}</mark>"
+            rendered = f"<b>{rendered}</b>"
         rows.append(
             f'<tr><th align="left" valign="top">{label}</th>'
             f'<td align="left" valign="top">{rendered}</td></tr>'

@@ -542,11 +542,11 @@ async def publish_dispatched(
 async def publish_due_reminder(
     settings: Settings,
     *,
-    destination: ScheduleDestination | None = None,
+    destination: RichScheduleDestination | None = None,
     state_path: Path = Path(".schedule-state/state.json"),
     clock: Callable[[], datetime] = utc_now,
 ) -> tuple[int, ...]:
-    """Send one due class reminder from the last schedule snapshot, then mark it sent."""
+    """Refresh the live card and send due alerts using the actual execution time."""
 
     token = _required_secret(settings.telegram_bot_token, "TELEGRAM_BOT_TOKEN")
     chat_id = _required_int(settings.target_chat_id, "TARGET_CHAT_ID", negative=True)
@@ -563,28 +563,52 @@ async def publish_due_reminder(
         local_now=local_now,
         sent_markers=state.sent_reminders,
     )
-    if reminder is None:
+    if reminder is None and state.calendar_message_id is None:
         return ()
 
-    marker, text = reminder
     own_destination = destination is None
     schedule_destination = destination or TelegramBotApiDestination(token)
     try:
-        message_id = await schedule_destination.send(
-            chat_id=chat_id,
-            topic_id=topic_id,
-            text=text,
-        )
+        sent: list[int] = []
+        calendar_message_id = state.calendar_message_id
+        if calendar_message_id is not None:
+            # Refresh time-sensitive status even when no notification is due.
+            # Preserve fetched_at: a clock refresh is not a new source check.
+            calendar_message_id, changed = await _upsert_calendar(
+                schedule_destination,
+                chat_id=chat_id,
+                topic_id=topic_id,
+                message_id=calendar_message_id,
+                rich_html=render_rich_digest(
+                    state.previous,
+                    local_now=local_now,
+                    calendar_feed_url=settings.schedule_calendar_url,
+                ),
+                fallback_html=render_digest_fallback(
+                    state.previous,
+                    local_now=local_now,
+                    calendar_feed_url=settings.schedule_calendar_url,
+                ),
+            )
+            if changed:
+                sent.append(calendar_message_id)
+        sent_reminders = state.sent_reminders
+        if reminder is not None:
+            marker, text = reminder
+            sent.append(await schedule_destination.send(
+                chat_id=chat_id, topic_id=topic_id, text=text,
+            ))
+            sent_reminders = (*sent_reminders, marker)[-100:]
         save_delivery_state(
             state_path,
             ScheduleDeliveryState(
                 previous=state.previous,
                 last_digest_date=state.last_digest_date,
-                sent_reminders=(*state.sent_reminders, marker)[-100:],
-                calendar_message_id=state.calendar_message_id,
+                sent_reminders=sent_reminders,
+                calendar_message_id=calendar_message_id,
             ),
         )
-        return (message_id,)
+        return tuple(sent)
     finally:
         if own_destination:
             await _close_source(schedule_destination)
