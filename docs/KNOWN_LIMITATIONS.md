@@ -12,10 +12,13 @@ profile remains dormant; its older blockers below do not block the schedule-only
 ## Hard release blockers
 
 - **The schedule-only CI path is live; timing remains best-effort.** It does not request
-  Telegram updates or collect student IDs. GitVerse and GitHub scheduled jobs can be
-  delayed or disabled by their providers, and Actions cache is not durable storage.
-  A cache eviction can suppress reminders until the next received snapshot or allow a
-  duplicate notification. This is accepted for the zero-cost small-group release.
+  Telegram updates or collect student IDs. After multi-hour GitHub cron delays were
+  observed, the primary GitVerse source workflow was raised to a sustainable half-hour
+  cadence and now makes the reminder decision itself; a 15-minute GitHub cron is only a
+  backup. Either provider can still delay or disable scheduled jobs, and Actions cache is
+  not durable storage. A cache eviction can suppress a reminder until the next received
+  snapshot or allow a duplicate notification. This is accepted for the zero-cost
+  small-group release.
 
 - **Runnable locally, not yet proven in staging.** `src/szs_hub/app.py` composes the
   long-poller, durable inbox, independent core/material workers, outbox sender, schedule

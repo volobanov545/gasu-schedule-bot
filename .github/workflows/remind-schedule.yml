@@ -3,20 +3,9 @@ name: Remind about today's classes
 on:
   workflow_dispatch:
   schedule:
-    # UTC moments for every first-class-minus-2h and every useful transition.
-    - cron: "0 4 * * *"
-    - cron: "45 5 * * *"
-    - cron: "30 7 * * *"
-    - cron: "15 7 * * *"
-    - cron: "0 9 * * *"
-    - cron: "0 10 * * *"
-    - cron: "45 10 * * *"
-    - cron: "45 11 * * *"
-    - cron: "15 13 * * *"
-    - cron: "30 13 * * *"
-    - cron: "0 15 * * *"
-    - cron: "15 15 * * *"
-    - cron: "45 16 * * *"
+    # Backup reminder sweep every 15 minutes, 07:07-22:52 Moscow time,
+    # Monday-Saturday. Offset minutes avoid GitHub's busiest :00 boundary.
+    - cron: "7,22,37,52 4-19 * * 1-6"
 
 permissions:
   contents: read

@@ -203,8 +203,11 @@ Delivery depends on both CI services, and a manual rerun can still create a dupl
 **Problem.** A daily plain-text card works, but does not provide a useful week view and
 cannot distinguish a genuine edit from the next week merely entering the source horizon.
 
-**Decision.** GitVerse fetches a dated two-week schedule at 06:50, 12:20, 17:20 and
-20:30 Europe/Moscow. GitHub keeps the last validated envelope in a tiny Actions cache.
+**Decision.** GitVerse originally fetched a dated two-week schedule four times per day;
+after observed multi-hour CI scheduling delays this cadence was superseded on 2026-09-16
+by half-hour checks from 06:00 through 21:30 Europe/Moscow, Monday-Saturday, exact
+transition ticks, and three Sunday checks. GitHub keeps the last validated envelope in a
+tiny Actions cache.
 Only dates present in both the old and new horizons are semantically compared. Dates
 newly appearing beyond the previous horizon are publication of the next week, not a
 change. Expired past dates are ignored.
@@ -215,10 +218,11 @@ details block. Actual changes are separate minimal diffs; today/tomorrow changes
 normally and later changes are silent. Identical snapshots produce no message. A classic
 HTML fallback preserves the essential tomorrow card if Rich Messages are rejected.
 
-**Why.** Four checks cover overnight, midday, end-of-office-day and evening changes for
-roughly 120 short source jobs per month. Users receive one predictable preparation card,
-not four status messages. The overlap rule prevents a rolling two-week window from
-manufacturing “added lessons” every Monday.
+**Why.** The denser cadence stays below the public GitVerse allowance even in a long
+month, while giving schedule changes and lesson transitions a useful delivery window.
+Users still receive only useful changes, reminders and one preparation summary—not a
+status message for every source check. The overlap rule prevents a rolling two-week
+window from manufacturing “added lessons” every Monday.
 
 **Tradeoff.** GitHub cache is small operational state, not an audit database. If it is
 evicted, the next run safely establishes a new baseline and therefore may miss one change;
@@ -248,11 +252,12 @@ A forced digest is a corrective rebaseline: it sends exactly one requested card 
 not interpret an earlier empty/broken cache as dozens of newly added lessons. The obsolete
 direct `publish-schedule.yml` workflow and every source button/link were removed.
 
-GitHub also runs one reminder command at the finite set of bell-derived times. It sends the
-first-class notice about two hours before class and, near the end of a current class, names
-the next class, start time, location, and remaining wait. It sends nothing after the final
-class. Persistent markers deduplicate normal retries; the full configured group name is
-hidden while a real subgroup label remains visible.
+Every accepted GitVerse snapshot also runs the reminder decision. GitHub independently
+runs the same command every 15 minutes on offset minutes as a backup. The bot sends the
+first-class notice about two hours before class and, near the end of a current class,
+names the next class, start time, location, and remaining wait. It sends nothing after
+the final class. Persistent markers deduplicate normal retries; the full configured group
+name is hidden while a real subgroup label remains visible.
 
 **Reliability tradeoff.** The two state workflows use one queued concurrency group and a
 versioned Actions cache. Cache remains best-effort rather than a database: eviction can

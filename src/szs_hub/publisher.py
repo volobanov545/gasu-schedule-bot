@@ -500,6 +500,27 @@ async def publish_dispatched(
                 )
             )
 
+        # GitHub's scheduled events are explicitly best-effort and can arrive late.
+        # Every fresh GitVerse snapshot is therefore also a reminder tick.  This
+        # keeps class alerts tied to the same Russia-reachable source check while
+        # the dedicated GitHub workflow remains a useful independent fallback.
+        sent_reminders = state.sent_reminders
+        reminder = due_reminder(
+            envelope,
+            local_now=local_now,
+            sent_markers=sent_reminders,
+        )
+        if reminder is not None:
+            marker, text = reminder
+            sent.append(
+                await schedule_destination.send(
+                    chat_id=chat_id,
+                    topic_id=topic_id,
+                    text=text,
+                )
+            )
+            sent_reminders = (*sent_reminders, marker)[-100:]
+
         if calendar_path is not None:
             _write_calendar(calendar_path, render_icalendar(envelope))
 
@@ -508,7 +529,7 @@ async def publish_dispatched(
             ScheduleDeliveryState(
                 previous=envelope,
                 last_digest_date=local_now.date() if publish_digest else state.last_digest_date,
-                sent_reminders=state.sent_reminders,
+                sent_reminders=sent_reminders,
                 calendar_message_id=calendar_message_id,
             ),
         )

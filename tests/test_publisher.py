@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import re
 from dataclasses import replace
-from datetime import UTC, date, datetime, time, timedelta, timezone
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 
 import httpx
@@ -29,7 +28,6 @@ from szs_hub.schedule.ci import (
     save_delivery_state,
 )
 from szs_hub.schedule.spbgasu import (
-    DEFAULT_BELL_SCHEDULE,
     SchedulePageBootstrap,
     WeeklyLesson,
     WeeklySchedule,
@@ -463,6 +461,37 @@ async def test_regular_snapshot_refreshes_live_status_on_the_pinned_card(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_fresh_gitverse_snapshot_is_also_a_deduplicated_reminder_tick(
+    tmp_path: Path,
+) -> None:
+    state_path = tmp_path / "state.json"
+    previous = _reminder_envelope()
+    current = replace(previous, fetched_at=previous.fetched_at + timedelta(hours=1))
+    save_delivery_state(
+        state_path,
+        ScheduleDeliveryState(previous=previous, calendar_message_id=70),
+    )
+    destination = FakeDestination()
+
+    message_ids = await publish_dispatched(
+        _reminder_settings(),
+        text_b64=encode_schedule_envelope(current),
+        group_key=current.group_key,
+        destination=destination,
+        state_path=state_path,
+        # 05:45 UTC is 08:45 Moscow: two hours before the first lesson.
+        clock=lambda: datetime(2026, 9, 11, 5, 45, tzinfo=UTC),
+    )
+
+    assert message_ids == (70, 77)
+    assert destination.sent is not None
+    assert "🌅 Первая пара в 10:45" in destination.sent[2]
+    assert load_delivery_state(state_path).sent_reminders == (
+        "first:2026-09-11:10:45:00",
+    )
+
+
+@pytest.mark.asyncio
 async def test_receiver_writes_a_valid_phone_calendar(tmp_path: Path) -> None:
     state_path = tmp_path / "state.json"
     calendar_path = tmp_path / "public" / "calendar.ics"
@@ -609,32 +638,12 @@ def test_active_github_workflows_do_not_contain_legacy_source_link() -> None:
         assert "rasp.spbgasu.ru" not in content
 
 
-def test_reminder_crons_cover_every_first_class_and_possible_transition() -> None:
+def test_reminder_cron_is_a_frequent_off_peak_backup() -> None:
     workflow = (
         Path(__file__).parents[1] / ".github" / "workflows" / "remind-schedule.yml"
     ).read_text(encoding="utf-8")
-    cron_matches = re.findall(r'- cron: "(\d+) (\d+) \* \* \*"', workflow)
-    actual = {(int(hour), int(minute)) for minute, hour in cron_matches}
-
-    moscow = timezone(timedelta(hours=3), name="Europe/Moscow")
-    anchor = date(2026, 9, 11)
-
-    def utc_moment(value: time, *, before: timedelta) -> tuple[int, int]:
-        local = datetime.combine(anchor, value, tzinfo=moscow) - before
-        utc = local.astimezone(UTC)
-        return utc.hour, utc.minute
-
-    slots = tuple(DEFAULT_BELL_SCHEDULE.values())
-    expected = {
-        utc_moment(starts_at, before=timedelta(hours=2))
-        for starts_at, _ends_at in slots
-    }
-    expected.update(
-        utc_moment(ends_at, before=timedelta(minutes=15))
-        for _starts_at, ends_at in slots[:-1]
-    )
-
-    assert actual == expected
+    assert 'cron: "7,22,37,52 4-19 * * 1-6"' in workflow
+    assert "Offset minutes avoid GitHub's busiest :00 boundary" in workflow
 
 
 def test_ci_bridge_workflows_keep_telegram_token_out_of_gitverse() -> None:
@@ -649,8 +658,13 @@ def test_ci_bridge_workflows_keep_telegram_token_out_of_gitverse() -> None:
         encoding="utf-8"
     )
 
-    for cron in ('50 3', '20 9', '20 14', '30 17'):
-        assert f'cron: "{cron} * * *"' in gitverse
+    for cron in (
+        "0,30 3-18 * * 1-6",
+        "15 7,13 * * 1-6",
+        "45 10,16 * * 1-6",
+        "0 6,12,18 * * 0",
+    ):
+        assert f'cron: "{cron}"' in gitverse
     assert "secrets.BRIDGE_GH_TOKEN" in gitverse
     assert "github-server-url: https://github.com" in gitverse
     assert "repository: volobanov545/gasu-schedule-bot" in gitverse
