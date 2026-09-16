@@ -305,6 +305,8 @@ def test_added_and_cancelled_change_cards_keep_the_complete_event() -> None:
     )
 
     assert "<b>🆕 Добавлена</b>" in added
+    assert "<blockquote><b>Новая пара</b> добавлена в расписание</blockquote>" in added
+    assert "<mark><b>Новая пара</b></mark>" not in added
     assert "<caption><b>✨ Актуальная пара</b></caption>" in added
     assert "Техническая механика" in added
     assert "Петров Пётр Петрович" in added

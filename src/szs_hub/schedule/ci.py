@@ -816,7 +816,7 @@ def _change_status(changes: tuple[ScheduleChange, ...]) -> str:
 
 def _rich_change_summary(changes: tuple[ScheduleChange, ...]) -> str:
     if any(change.kind is ChangeKind.ADDED for change in changes):
-        return "<blockquote><mark><b>Новая пара</b></mark> добавлена в расписание</blockquote>"
+        return "<blockquote><b>Новая пара</b> добавлена в расписание</blockquote>"
     if any(change.kind is ChangeKind.CANCELLED for change in changes):
         return (
             "<blockquote><mark><b>Пара отменена</b></mark><br>"
