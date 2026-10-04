@@ -333,10 +333,10 @@ async def test_github_receiver_sends_forced_rich_digest_and_persists_state(
     assert "<h1>🗓 Расписание</h1>" in destination.rich_sent[0][2]
     assert "<table bordered compact>" in destination.rich_sent[0][2]
     assert '<td align="center" valign="middle">' in destination.rich_sent[0][2]
-    assert '<td align="left" valign="middle">' in destination.rich_sent[0][2]
+    assert '<td align="left" valign="top">' in destination.rich_sent[0][2]
     assert "colspan=" not in destination.rich_sent[0][2]
     assert "<details" not in destination.rich_sent[0][2]
-    assert "Иванов И. И." in destination.rich_sent[0][2]
+    assert "Иванов\u00a0И.\u00a0И." in destination.rich_sent[0][2]
     assert destination.pinned == [(-1001, 78)]
     assert load_delivery_state(state_path).calendar_message_id == 78
     assert all(

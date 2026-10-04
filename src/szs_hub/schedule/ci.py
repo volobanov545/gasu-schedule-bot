@@ -20,6 +20,7 @@ from szs_hub.domain.schedule import (
     diff_schedules,
 )
 from szs_hub.schedule.render import render_day_card
+from szs_hub.schedule.typography import location_text, table_text, teacher_text
 
 _SCHEMA_VERSION = 3
 _MAX_ENCODED_BYTES = 65_000
@@ -778,27 +779,22 @@ def _rich_lesson_table(
     )
     for lesson in lessons:
         teacher = (
-            escape(lesson.teacher.strip())
+            teacher_text(lesson.teacher)
             if lesson.teacher and lesson.teacher.strip()
             else "Преподаватель не указан"
         )
         lesson_type = (
-            escape(lesson.lesson_type.strip())
+            table_text(lesson.lesson_type)
             if lesson.lesson_type and lesson.lesson_type.strip()
             else "—"
         )
-        room = (
-            escape(lesson.room.strip())
-            if lesson.room and lesson.room.strip()
-            else "—"
-        )
-        building = (
-            escape(lesson.building.strip())
-            if lesson.building and lesson.building.strip()
-            else "—"
+        location = (
+            location_text("Ауд.", lesson.room or "")
+            + "\N{NO-BREAK SPACE}· "
+            + location_text("корп.", lesson.building or "")
         )
         subgroup = (
-            escape(lesson.subgroup.strip())
+            table_text(lesson.subgroup)
             if lesson.subgroup
             and lesson.subgroup.strip()
             and lesson.subgroup.strip().casefold() != group_key.strip().casefold()
@@ -808,7 +804,7 @@ def _rich_lesson_table(
             lesson.day == today and lesson.starts_at <= current_time < lesson.ends_at
         )
         is_next = lesson.day == today and lesson.starts_at == upcoming_start
-        subject = f"<b>{escape(lesson.subject.strip())}</b>"
+        subject = f"<b>{table_text(lesson.subject)}</b>"
         if is_current:
             state_label = "<b>Сейчас</b><br>"
         elif is_next:
@@ -821,9 +817,9 @@ def _rich_lesson_table(
             '<tr><td align="center" valign="middle">'
             f"{state_label}<b>{lesson.starts_at:%H:%M}</b>"
             f"<br>{lesson.ends_at:%H:%M}</td>"
-            f'<td align="left" valign="middle">{subject}'
-            f"<br>Ауд. <b>{room}</b> · корп. <b>{building}</b>"
-            f"<br>{lesson_type}<br>{teacher}"
+            f'<td align="left" valign="top">{subject}'
+            f"<br>{location}"
+            f"<br><i>{lesson_type}</i><br>{teacher}"
             + (f"<br>Подгруппа: {subgroup}" if subgroup else "")
             + "</td></tr>"
         )

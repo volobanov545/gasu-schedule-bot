@@ -105,9 +105,9 @@ def test_rich_digest_uses_article_primitives_and_escapes_source_data() -> None:
     assert "<h2>Среда, 2 сентября</h2>" in rendered
     assert "<table bordered compact>" in rendered
     assert '<td align="center" valign="middle">' in rendered
-    assert '<td align="left" valign="middle">' in rendered
-    assert "Ауд. <b>312</b> · корп. <b>1</b>" in rendered
-    assert "<br>Практика<br>Иванов Иван Иванович" in rendered
+    assert '<td align="left" valign="top">' in rendered
+    assert "Ауд.\u00a0<b>312</b>\u00a0· корп.\u00a0<b>1</b>" in rendered
+    assert "<br><i>Практика</i><br>Иванов Иван Иванович" in rendered
     assert "<th" not in rendered
     assert "<details" not in rendered  # The useful day is already visible.
     assert "<tg-button-row" not in rendered
