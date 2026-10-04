@@ -431,6 +431,26 @@ def changes_are_urgent(changes: tuple[ScheduleChange, ...], *, today: date) -> b
     return any((change.after or change.before).day <= tomorrow for change in changes)  # type: ignore[union-attr]
 
 
+def urgent_upcoming_changes(
+    changes: tuple[ScheduleChange, ...], *, local_now: datetime,
+) -> tuple[ScheduleChange, ...]:
+    """Notify only actionable upcoming changes; routine metadata stays on the card."""
+    actionable = {
+        ChangeKind.CANCELLED, ChangeKind.ADDED, ChangeKind.TIME,
+        ChangeKind.ROOM, ChangeKind.BUILDING, ChangeKind.SUBJECT,
+    }
+    deadline = local_now + timedelta(hours=24)
+    return tuple(
+        change for change in changes
+        if change.kind in actionable
+        and any(
+            local_now <= datetime.combine(lesson.day, lesson.starts_at, local_now.tzinfo)
+            <= deadline
+            for lesson in (change.before, change.after) if lesson is not None
+        )
+    )
+
+
 def _envelope_dict(envelope: ScheduleEnvelope) -> dict[str, Any]:
     return {
         "v": _SCHEMA_VERSION,
@@ -646,17 +666,25 @@ def _day_status(envelope: ScheduleEnvelope, local_now: datetime) -> str:
         None,
     )
     if current is not None:
+        location = _compact_slot_location(tuple(
+            item for item in lessons if item.starts_at == current.starts_at
+        ))
         return (
             f"🟢 <b>Сейчас</b> · {escape(current.subject)}"
             f"<br><i>До {current.ends_at:%H:%M}"
             f" · ещё {_minutes_phrase(_minutes_until(local_now, current.ends_at))}</i>"
+            + (f"<br>📍 {location}" if location else "")
         )
     upcoming = next((item for item in lessons if item.starts_at > now_time), None)
     if upcoming is not None:
+        location = _compact_slot_location(tuple(
+            item for item in lessons if item.starts_at == upcoming.starts_at
+        ))
         return (
             f"🔵 <b>Следующая · {upcoming.starts_at:%H:%M}</b>"
             f"<br>{escape(upcoming.subject)}"
             f"<br><i>Через {_minutes_phrase(_minutes_until(local_now, upcoming.starts_at))}</i>"
+            + (f"<br>📍 {location}" if location else "")
         )
     return "🌙 <b>На сегодня всё</b><br><i>До завтра</i>"
 

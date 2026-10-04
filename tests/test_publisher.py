@@ -128,6 +128,7 @@ class FailingDestination(FakeDestination):
 
 def _reminder_settings() -> Settings:
     return Settings(
+        schedule_quiet_mode=False,
         telegram_bot_token=SecretStr("123456:token"),
         target_chat_id=-1001,
         schedule_topic_id=42,
@@ -489,6 +490,69 @@ async def test_fresh_gitverse_snapshot_is_also_a_deduplicated_reminder_tick(
     assert load_delivery_state(state_path).sent_reminders == (
         "first:2026-09-11:10:45:00",
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change,now,notify", [
+    ("teacher", datetime(2026, 9, 11, 5, 45, tzinfo=UTC), False),
+    ("room", datetime(2026, 9, 11, 5, 45, tzinfo=UTC), True),
+    ("cancel", datetime(2026, 9, 11, 5, 45, tzinfo=UTC), True),
+    ("room", datetime(2026, 9, 11, 10, 0, tzinfo=UTC), False),
+    ("room", datetime(2026, 9, 9, 5, 45, tzinfo=UTC), False),
+    ("none", datetime(2026, 9, 11, 17, 30, tzinfo=UTC), False),
+])
+async def test_quiet_mode_keeps_card_without_routine_posts(
+    tmp_path: Path, change: str, now: datetime, notify: bool,
+) -> None:
+    previous = _reminder_envelope()
+    lesson = previous.lessons[0]
+    lessons = {
+        "teacher": (replace(lesson, teacher="Петров Пётр Петрович"),),
+        "room": (replace(lesson, room="512"),),
+        "cancel": (),
+        "none": previous.lessons,
+    }[change]
+    current = replace(previous, fetched_at=previous.fetched_at + timedelta(hours=1),
+                      lessons=lessons)
+    path = tmp_path / "state.json"
+    save_delivery_state(path, ScheduleDeliveryState(previous=previous, calendar_message_id=70))
+    destination = FakeDestination()
+    await publish_dispatched(
+        _reminder_settings().model_copy(update={"schedule_quiet_mode": True}),
+        text_b64=encode_schedule_envelope(current), group_key=current.group_key,
+        destination=destination, state_path=path, clock=lambda: now,
+    )
+    assert destination.rich_edited[0][1] == 70
+    assert destination.sent_calls == []  # No evening post or class reminder.
+    assert len(destination.rich_sent) == int(notify)
+    if notify:
+        assert "https://t.me/c/1/42/70" in destination.rich_sent[0][2]
+    assert load_delivery_state(path).previous == current
+    # An identical snapshot must not re-send the urgent alert.
+    await publish_dispatched(
+        _reminder_settings().model_copy(update={"schedule_quiet_mode": True}),
+        text_b64=encode_schedule_envelope(current), group_key=current.group_key,
+        destination=destination, state_path=path, clock=lambda: now,
+    )
+    assert len(destination.rich_sent) == int(notify)
+
+
+@pytest.mark.asyncio
+async def test_quiet_backup_refreshes_card_at_reminder_time_without_post(tmp_path: Path) -> None:
+    path = tmp_path / "state.json"
+    save_delivery_state(path, ScheduleDeliveryState(
+        previous=_reminder_envelope(), calendar_message_id=70,
+    ))
+    destination = FakeDestination()
+    await publish_due_reminder(
+        _reminder_settings().model_copy(update={"schedule_quiet_mode": True}),
+        destination=destination, state_path=path,
+        clock=lambda: datetime(2026, 9, 11, 5, 45, tzinfo=UTC),
+    )
+    assert destination.rich_edited[0][1] == 70
+    assert "407" in destination.rich_edited[0][2]
+    assert destination.sent_calls == []
+    assert destination.rich_sent == []
 
 
 @pytest.mark.asyncio

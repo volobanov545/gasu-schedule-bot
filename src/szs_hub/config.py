@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     schedule_stale_after_minutes: int = Field(default=360, ge=15, le=10_080)
     schedule_sync_minutes: int = Field(default=15, ge=5, le=240)
     schedule_calendar_url: str | None = None
+    schedule_quiet_mode: bool = True
     runtime_heartbeat_stale_minutes: int = Field(default=5, ge=2, le=60)
     telegram_probe_interval_minutes: int = Field(default=15, ge=5, le=240)
     telegram_probe_stale_minutes: int = Field(default=30, ge=10, le=480)

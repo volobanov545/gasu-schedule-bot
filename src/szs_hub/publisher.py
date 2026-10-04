@@ -38,6 +38,7 @@ from szs_hub.schedule.ci import (
     render_rich_digest,
     save_delivery_state,
     should_publish_digest,
+    urgent_upcoming_changes,
 )
 from szs_hub.schedule.render import render_day_card
 from szs_hub.schedule.spbgasu import (
@@ -468,21 +469,32 @@ async def publish_dispatched(
         if calendar_changed:
             sent.append(calendar_message_id)
 
-        if changes:
+        notice_changes = (
+            urgent_upcoming_changes(changes, local_now=local_now)
+            if settings.schedule_quiet_mode else changes
+        )
+        if notice_changes:
+            calendar_url = _telegram_topic_message_url(
+                chat_id=chat_id, topic_id=topic_id, message_id=calendar_message_id,
+            )
+            calendar_link = (
+                f'<p><a href="{calendar_url}">Открыть расписание</a></p>'
+                if calendar_url else ""
+            )
             sent.append(
                 await schedule_destination.send_rich(
                     chat_id=chat_id,
                     topic_id=topic_id,
                     rich_html=render_rich_changes(
-                        changes,
+                        notice_changes,
                         fetched_at=envelope.fetched_at.astimezone(local_now.tzinfo),
-                    ),
-                    fallback_html=render_changes_fallback(changes),
-                    silent=not changes_are_urgent(changes, today=local_now.date()),
+                    ) + calendar_link,
+                    fallback_html=render_changes_fallback(notice_changes) + calendar_link,
+                    silent=not changes_are_urgent(notice_changes, today=local_now.date()),
                 )
             )
 
-        if publish_digest and not envelope.force_digest:
+        if publish_digest and not envelope.force_digest and not settings.schedule_quiet_mode:
             calendar_url = _telegram_topic_message_url(
                 chat_id=chat_id,
                 topic_id=topic_id,
@@ -510,7 +522,7 @@ async def publish_dispatched(
             local_now=local_now,
             sent_markers=sent_reminders,
         )
-        if reminder is not None:
+        if reminder is not None and not settings.schedule_quiet_mode:
             marker, text = reminder
             sent.append(
                 await schedule_destination.send(
@@ -563,6 +575,8 @@ async def publish_due_reminder(
         local_now=local_now,
         sent_markers=state.sent_reminders,
     )
+    if settings.schedule_quiet_mode:
+        reminder = None
     if reminder is None and state.calendar_message_id is None:
         return ()
 
