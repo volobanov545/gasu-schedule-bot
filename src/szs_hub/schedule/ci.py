@@ -234,7 +234,7 @@ def render_rich_digest(
             blocks.append(
                 "<hr/><details><summary>Остальные дни недели</summary>"
                 + "".join(
-                    _plan_day_block(day, _lessons_on(envelope.lessons, day), envelope, local_now)
+                    _plan_day_disclosure(day, envelope, local_now)
                     for day in other_days
                 )
                 + "</details>"
@@ -247,7 +247,7 @@ def render_rich_digest(
             blocks.append(
                 "<hr/><details><summary>Следующая неделя</summary>"
                 + "".join(
-                    _plan_day_block(day, _lessons_on(envelope.lessons, day), envelope, local_now)
+                    _plan_day_disclosure(day, envelope, local_now)
                     for day in next_days
                 )
                 + "</details>"
@@ -734,6 +734,19 @@ def _relative_time(lesson: Lesson, value: time, local_now: datetime) -> str:
     return (
         f'<tg-time unix="{int(target.timestamp())}" format="r">'
         f"Через {_minutes_phrase(minutes)}</tg-time>"
+    )
+
+
+def _plan_day_disclosure(
+    day: date, envelope: ScheduleEnvelope, local_now: datetime,
+) -> str:
+    lessons = _lessons_on(envelope.lessons, day)
+    count = len(_slot_groups(lessons))
+    return (
+        f"<details><summary>{_plan_date(day)}</summary>"
+        f"<p>{count} {_pair_word(count)} · {_time_span(lessons)}</p>"
+        + _rich_lesson_table(lessons, group_key=envelope.group_key, local_now=local_now)
+        + "</details>"
     )
 
 

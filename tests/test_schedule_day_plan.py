@@ -35,6 +35,7 @@ def test_sunday_opens_tuesday_and_omits_expired_week() -> None:
     assert "Прошедшая суббота" not in html
     assert html.index("Ближайшая лекция") < html.index("<details")
     assert "<summary>Остальные дни недели</summary>" in html
+    assert "<details><summary>Ср, 7 октября</summary>" in html
     assert "Следующая неделя" not in html  # Never show a dead disclosure.
     assert "Завтра" not in html
 
