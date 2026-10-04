@@ -20,6 +20,7 @@ from szs_hub.domain.schedule import (
     diff_schedules,
 )
 from szs_hub.schedule.render import render_day_card
+from szs_hub.schedule.subjects import subject_label
 from szs_hub.schedule.typography import location_text, table_text, teacher_text
 
 _SCHEMA_VERSION = 3
@@ -284,7 +285,9 @@ def render_digest_fallback(
     if primary_day is not None:
         lessons = _lessons_on(envelope.lessons, primary_day)
         relative_label = "Сегодня" if primary_day == local_now.date() else "Ближайший учебный день"
-        text = render_day_card(primary_day, lessons, relative_label=relative_label)
+        text = render_day_card(
+            primary_day, lessons, relative_label=relative_label, short_subjects=True,
+        )
     else:
         text = "<b>Расписание</b>\nСледующих занятий в опубликованном расписании не найдено."
     if calendar_feed_url:
@@ -310,7 +313,9 @@ def render_evening_summary(
         slots = _slot_groups(lessons)
         lines = [heading, f"📚 {len(slots)} {_pair_word(len(slots))} · {_time_span(lessons)}"]
         for (starts_at, _ends_at), slot_lessons in slots:
-            subjects = " / ".join(dict.fromkeys(escape(item.subject) for item in slot_lessons))
+            subjects = " / ".join(
+                dict.fromkeys(escape(subject_label(item.subject)) for item in slot_lessons)
+            )
             place = _compact_slot_location(slot_lessons)
             lines.append(
                 f"<b>• {starts_at:%H:%M}</b> · {subjects}{f' · 📍 {place}' if place else ''}"
@@ -804,7 +809,7 @@ def _rich_lesson_table(
             lesson.day == today and lesson.starts_at <= current_time < lesson.ends_at
         )
         is_next = lesson.day == today and lesson.starts_at == upcoming_start
-        subject = f"<b>{table_text(lesson.subject)}</b>"
+        subject = f"<b>{table_text(subject_label(lesson.subject))}</b>"
         if is_current:
             state_label = "<b>Сейчас</b><br>"
         elif is_next:

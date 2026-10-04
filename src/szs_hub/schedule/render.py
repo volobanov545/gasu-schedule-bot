@@ -7,6 +7,7 @@ from datetime import date
 from html import escape
 
 from szs_hub.domain.schedule import ChangeKind, Lesson, ScheduleChange
+from szs_hub.schedule.subjects import subject_label
 
 _WEEKDAYS = (
     "понедельник",
@@ -34,7 +35,9 @@ _MONTHS = (
 )
 
 
-def render_day_card(day: date, lessons: Iterable[Lesson], *, relative_label: str) -> str:
+def render_day_card(
+    day: date, lessons: Iterable[Lesson], *, relative_label: str, short_subjects: bool = False,
+) -> str:
     ordered = sorted(lessons, key=lambda lesson: (lesson.starts_at, lesson.subject.casefold()))
     heading = f"📅 <b>{escape(relative_label)}</b> · {_date_label(day)}"
     if not ordered:
@@ -44,7 +47,7 @@ def render_day_card(day: date, lessons: Iterable[Lesson], *, relative_label: str
     for lesson in ordered:
         lines = [
             f"<b>{_time_range(lesson)}</b>",
-            escape(lesson.subject.strip()),
+            escape(subject_label(lesson.subject) if short_subjects else lesson.subject.strip()),
         ]
         details = _lesson_details(lesson)
         if details:
@@ -143,4 +146,3 @@ def _russian_pair_word(count: int) -> str:
     if count % 10 in (2, 3, 4) and count % 100 not in (12, 13, 14):
         return "пары"
     return "пар"
-

@@ -93,7 +93,7 @@ def test_fallback_also_opens_the_next_teaching_day() -> None:
         local_now=datetime(2026, 10, 4, 12, tzinfo=MSK),
     )
     assert "Ближайший учебный день" in text
-    assert "6 октября" in text and "Безопасность жизнедеятельности" in text
+    assert "6 октября" in text and "БЖД" in text
 
 
 def test_source_values_are_escaped_and_every_table_row_has_only_two_cells() -> None:
