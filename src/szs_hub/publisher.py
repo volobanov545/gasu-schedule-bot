@@ -744,9 +744,11 @@ async def _upsert_calendar(
                 fallback_html=fallback_html,
             )
             return edited, True
-        except RuntimeError:
-            # A lost CI cache or deleted old card must not prevent recovery.
-            pass
+        except RuntimeError as exc:
+            # Transient outages/rate limits must not create another card.
+            # Only a confirmed missing message permits replacement.
+            if "message to edit not found" not in str(exc).casefold():
+                raise
     created = await destination.send_rich(
         chat_id=chat_id,
         topic_id=topic_id,

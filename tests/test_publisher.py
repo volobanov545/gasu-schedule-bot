@@ -556,6 +556,37 @@ async def test_quiet_backup_refreshes_card_at_reminder_time_without_post(tmp_pat
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("error,recover", [
+    ("Telegram delivery failed (HTTP 429: Too Many Requests)", False),
+    ("Telegram delivery failed (HTTP 500: Internal Server Error)", False),
+    ("Telegram delivery failed (HTTP 400: message to edit not found)", True),
+])
+async def test_edit_failure_only_replaces_confirmed_missing_card(
+    tmp_path: Path, error: str, recover: bool,
+) -> None:
+    class BrokenEdit(FakeDestination):
+        async def edit_rich(self, **kwargs: object) -> int:
+            raise RuntimeError(error)
+
+    path = tmp_path / "state.json"
+    initial = ScheduleDeliveryState(previous=_reminder_envelope(), calendar_message_id=70)
+    save_delivery_state(path, initial)
+    destination = BrokenEdit()
+    kwargs = dict(destination=destination, state_path=path,
+                  clock=lambda: datetime(2026, 9, 11, 8, tzinfo=UTC))
+    settings = _reminder_settings().model_copy(update={"schedule_quiet_mode": True})
+    if recover:
+        await publish_due_reminder(settings, **kwargs)
+        assert len(destination.rich_sent) == 1
+        assert destination.pinned == [(-1001, 78)]
+    else:
+        with pytest.raises(RuntimeError):
+            await publish_due_reminder(settings, **kwargs)
+        assert destination.rich_sent == []
+        assert load_delivery_state(path) == initial
+
+
+@pytest.mark.asyncio
 async def test_receiver_writes_a_valid_phone_calendar(tmp_path: Path) -> None:
     state_path = tmp_path / "state.json"
     calendar_path = tmp_path / "public" / "calendar.ics"
