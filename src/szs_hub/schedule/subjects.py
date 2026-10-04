@@ -1,5 +1,8 @@
 """Stable display aliases; never rewrite source subjects or calendar identity."""
 
+from collections.abc import Iterable
+from html import escape
+
 SUBJECT_ALIASES: tuple[tuple[str, str], ...] = (
     ("Безопасность жизнедеятельности", "БЖД"),
     ("Водоснабжение и водоотведение", "ВиВ"),
@@ -12,6 +15,24 @@ SUBJECT_ALIASES: tuple[tuple[str, str], ...] = (
 )
 
 _ALIASES = {full.casefold(): short for full, short in SUBJECT_ALIASES}
+_REFERENCE_NAMES = {
+    full.casefold(): f"subject-{index}" for index, (full, _) in enumerate(SUBJECT_ALIASES)
+}
+
+
+def subject_reference_name(value: str) -> str | None:
+    """Stable internal footnote target, never a URL or callback to the bot."""
+    return _REFERENCE_NAMES.get(" ".join(value.split()).casefold())
+
+
+def subject_reference_definitions(subjects: Iterable[str]) -> str:
+    """Define each used abbreviation once, including those in collapsed days."""
+    used = {subject_reference_name(subject) for subject in subjects}
+    return "".join(
+        f'<tg-reference name="{_REFERENCE_NAMES[full.casefold()]}">{escape(full)}</tg-reference>'
+        for full, _ in SUBJECT_ALIASES
+        if _REFERENCE_NAMES[full.casefold()] in used
+    )
 
 
 def subject_label(value: str) -> str:

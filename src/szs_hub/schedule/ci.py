@@ -20,7 +20,11 @@ from szs_hub.domain.schedule import (
     diff_schedules,
 )
 from szs_hub.schedule.render import render_day_card
-from szs_hub.schedule.subjects import subject_label
+from szs_hub.schedule.subjects import (
+    subject_label,
+    subject_reference_definitions,
+    subject_reference_name,
+)
 from szs_hub.schedule.typography import location_text, table_text, teacher_text
 
 _SCHEMA_VERSION = 3
@@ -270,7 +274,9 @@ def render_rich_digest(
         )
     blocks.append(
         f"<footer>Статус на {local_now:%H:%M} МСК<br>"
-        f"Сайт проверен {fetched_local:%d.%m · %H:%M} МСК</footer>"
+        f"Сайт проверен {fetched_local:%d.%m · %H:%M} МСК"
+        + subject_reference_definitions(lesson.subject for lesson in envelope.lessons)
+        + "</footer>"
     )
     return "".join(blocks)
 
@@ -809,7 +815,11 @@ def _rich_lesson_table(
             lesson.day == today and lesson.starts_at <= current_time < lesson.ends_at
         )
         is_next = lesson.day == today and lesson.starts_at == upcoming_start
-        subject = f"<b>{table_text(subject_label(lesson.subject))}</b>"
+        subject = table_text(subject_label(lesson.subject))
+        reference_name = subject_reference_name(lesson.subject)
+        if reference_name is not None:
+            subject = f'<a href="#{reference_name}">{subject}</a>'
+        subject = f"<b>{subject}</b>"
         if is_current:
             state_label = "<b>Сейчас</b><br>"
         elif is_next:

@@ -21,6 +21,8 @@ from szs_hub.schedule.subjects import (
     bot_description,
     bot_short_description,
     subject_label,
+    subject_reference_definitions,
+    subject_reference_name,
 )
 
 
@@ -57,15 +59,48 @@ def test_aliases_render_without_changing_snapshot_or_phone_calendar() -> None:
     rich = render_rich_digest(envelope, local_now=now)
     fallback = render_digest_fallback(envelope, local_now=now)
     for full, short in SUBJECT_ALIASES:
-        assert f"<b>{short}</b>" in rich
+        reference = subject_reference_name(full)
+        assert f'<b><a href="#{reference}">{short}</a></b>' in rich
+        assert rich.count(f'<tg-reference name="{reference}">{full}</tg-reference>') == 1
         assert short in fallback
-        assert full not in rich
     assert "Полные названия" not in rich and "Сокращения предметов" not in rich
     assert encode_schedule_envelope(envelope) == encoded_before
     assert decode_schedule_envelope(encoded_before).lessons == lessons
     calendar = render_icalendar(envelope).replace("\r\n ", "")
     for full, _ in SUBJECT_ALIASES:
         assert f"SUMMARY:{full}" in calendar
+
+
+def test_reference_targets_are_unique_and_deduplicated_for_repeated_lessons() -> None:
+    full = "Проектный менеджмент"
+    reference = subject_reference_name(full)
+    definitions = subject_reference_definitions([full, full.upper(), "  " + full + "  "])
+    assert definitions == f'<tg-reference name="{reference}">{full}</tg-reference>'
+    assert subject_reference_name("  ПРОЕКТНЫЙ\nМЕНЕДЖМЕНТ ") == reference
+    assert subject_reference_name(full + " (спецкурс)") is None
+    assert subject_reference_definitions(["Неизвестный предмет"]) == ""
+    names = [subject_reference_name(name) for name, _ in SUBJECT_ALIASES]
+    assert len(set(names)) == len(SUBJECT_ALIASES)
+
+
+def test_references_cover_collapsed_days_without_shortening_unknown_subjects() -> None:
+    now = datetime(2026, 10, 6, 5, tzinfo=UTC)
+    lessons = (
+        Lesson(date(2026, 10, 6), time(9), time(10), "Безопасность жизнедеятельности"),
+        Lesson(date(2026, 10, 7), time(9), time(10), "Проектный менеджмент"),
+        Lesson(date(2026, 10, 13), time(9), time(10), "Средства механизации строительства"),
+        Lesson(date(2026, 10, 14), time(9), time(10), "<Новый & предмет>"),
+    )
+    envelope = ScheduleEnvelope("3-СУЗСс-3", now, date(2026, 10, 5), date(2026, 10, 18), lessons)
+    html = render_rich_digest(envelope, local_now=now)
+    for lesson in lessons[:3]:
+        reference = subject_reference_name(lesson.subject)
+        assert f'href="#{reference}"' in html
+        assert html.count(f'<tg-reference name="{reference}">') == 1
+    assert "<b>&lt;Новый &amp; предмет&gt;</b>" in html
+    assert "callback_data" not in html
+    assert "Полные названия" not in html
+    assert "<tg-reference" not in render_digest_fallback(envelope, local_now=now)
 
 
 @pytest.mark.asyncio
