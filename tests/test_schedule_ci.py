@@ -101,30 +101,22 @@ def test_rich_digest_uses_article_primitives_and_escapes_source_data() -> None:
     )
 
     assert rendered.startswith("<h1>🗓 Расписание</h1><p><b>3-СУЗСс-3</b>")
-    assert "<hr/>" in rendered
-    assert "<b>🗓 31 авг–6 сен</b> (1 пара)" in rendered
-    assert "<b>🔭 7–13 сен</b> (пар нет)" in rendered
-    assert "Эта неделя" not in rendered
-    assert "Следующая неделя" not in rendered
+    assert "Следующий учебный день: Ср, 2 сентября" in rendered
+    assert "<h2>Среда, 2 сентября</h2>" in rendered
     assert "<table bordered compact>" in rendered
-    assert '<td rowspan="4" align="center" valign="middle">' in rendered
-    assert '<th colspan="3" align="center" valign="middle">' in rendered
-    assert '<th align="center" valign="middle">Тип</th>' in rendered
-    assert '<th align="center" valign="middle">Ауд.</th>' in rendered
-    assert '<th align="center" valign="middle">Корп.</th>' in rendered
-    assert '<td align="center" valign="middle">Практика</td>' in rendered
-    assert '<td align="center" valign="middle"><b>312</b></td>' in rendered
-    assert '<td align="center" valign="middle"><b>1</b></td>' in rendered
-    assert '<td colspan="3" align="center" valign="middle">👤' in rendered
-    assert "<th>Где</th>" not in rendered
-    assert "<details" in rendered
+    assert '<td align="center" valign="middle">' in rendered
+    assert '<td align="left" valign="middle">' in rendered
+    assert "Ауд. <b>312</b> · корп. <b>1</b>" in rendered
+    assert "<br>Практика<br>Иванов Иван Иванович" in rendered
+    assert "<th" not in rendered
+    assert "<details" not in rendered  # The useful day is already visible.
     assert "<tg-button-row" not in rendered
     assert "https://" not in rendered
     assert "&lt;ЖБК &amp; геодезия&gt;" in rendered
     assert "Иванов Иван Иванович" in rendered
 
 
-def test_rich_digest_gives_optional_subgroup_its_own_full_width_row() -> None:
+def test_rich_digest_keeps_optional_subgroup_in_the_lesson_cell() -> None:
     lesson = replace(_lesson(date(2026, 9, 2)), subgroup="Подгруппа 1")
     envelope = _envelope(date(2026, 8, 31), lesson)
 
@@ -133,8 +125,8 @@ def test_rich_digest_gives_optional_subgroup_its_own_full_width_row() -> None:
         local_now=datetime(2026, 9, 1, 20, 30, tzinfo=UTC),
     )
 
-    assert '<td rowspan="5" align="center" valign="middle">' in rendered
-    assert "👥 <i>Подгруппа 1</i>" in rendered
+    assert "<br>Подгруппа: Подгруппа 1</td>" in rendered
+    assert rendered.count("<td ") == 2
 
 
 def test_calendar_card_links_to_the_live_phone_feed() -> None:
@@ -154,7 +146,7 @@ def test_calendar_card_links_to_the_live_phone_feed() -> None:
 
     assert '<tg-button-row align="center">' in rich
     assert 'style="primary"' in rich
-    assert "📲 Подключить календарь" in rich
+    assert "Календарь телефона" in rich
     assert url in rich
     assert url in fallback
 
@@ -167,7 +159,7 @@ def test_current_lesson_gets_a_live_visual_accent() -> None:
         local_now=datetime(2026, 9, 14, 11, tzinfo=UTC),
     )
 
-    assert "🟢 <b>Сейчас</b>" in rendered
+    assert "<b>Сейчас</b> · до 12:15" in rendered
     assert "<b>Сейчас</b><br><b>10:45</b>" in rendered
     assert "<mark><b>Геодезия</b></mark>" not in rendered
 
@@ -209,14 +201,15 @@ def test_live_card_progresses_from_next_to_current_and_finished() -> None:
         local_now=datetime(2026, 9, 14, 12, 16, tzinfo=UTC),
     )
 
-    assert "🔵 <b>Следующая · 09:00</b>" in before
-    assert "🟢 <b>Сейчас</b> · Первая" in first_active
-    assert "🔵 <b>Следующая · 10:45</b>" in between
-    assert "🟢 <b>Сейчас</b> · Вторая" in second_active
-    assert "🌙 <b>На сегодня всё</b>" in finished
+    assert "<b>Следующая · 09:00</b>" in before
+    assert "<b>Сейчас</b> · до 10:30" in first_active
+    assert "Далее в 10:45" in first_active
+    assert "<b>Следующая · 10:45</b>" in between
+    assert "<b>Сейчас</b> · до 12:15" in second_active
+    assert "<b>На сегодня всё</b>" in finished
 
 
-def test_next_lesson_colors_only_its_time_cell() -> None:
+def test_next_lesson_uses_a_plain_time_cell_without_theme_dependent_fill() -> None:
     envelope = _envelope(date(2026, 9, 14), _lesson(date(2026, 9, 14)))
 
     rendered = render_rich_digest(
@@ -225,10 +218,12 @@ def test_next_lesson_colors_only_its_time_cell() -> None:
     )
 
     assert (
-        '<th rowspan="4" align="center" valign="middle">'
+        '<td align="center" valign="middle">'
         "<b>Далее</b><br><b>10:45</b>"
     ) in rendered
     assert "<u><b>Геодезия</b></u>" not in rendered
+    assert "<th" not in rendered
+    assert "<mark" not in rendered
 
 
 def test_nighttime_forced_digest_keeps_the_upcoming_current_day() -> None:
@@ -243,12 +238,11 @@ def test_nighttime_forced_digest_keeps_the_upcoming_current_day() -> None:
     )
 
     assert rendered.startswith(
-        "<h1>🗓 Расписание</h1><p><b>3-СУЗСс-3</b> · <i>7–20 сентября</i></p>"
+        "<h1>🗓 Расписание</h1><p><b>3-СУЗСс-3</b></p>"
     )
     assert "Пятничная пара" in rendered
-    assert "<b>Сегодня</b> (1 пара)" in rendered
-    assert "<b>Сегодня</b> ·" not in rendered
-    assert "<details open>" in rendered
+    assert "<h2>Сегодня · Пятница, 11 сентября</h2>" in rendered
+    assert "<details" not in rendered
 
 
 def test_change_card_shows_delta_and_complete_current_and_previous_event() -> None:
@@ -453,7 +447,7 @@ def test_live_countdown_has_no_marker_and_distinguishes_source_check_time() -> N
         envelope, local_now=datetime(2026, 9, 11, 11, tzinfo=UTC),
     )
     assert "Через 15 мин" in before
-    assert "ещё 1 ч 15 мин" in during
+    assert 'format="r">Через 1 ч 15 мин</tg-time>' in during
     assert "Статус на 11:00 МСК" in during
     assert "Сайт проверен" in during
     assert "<mark>" not in before + during

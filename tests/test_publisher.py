@@ -332,9 +332,10 @@ async def test_github_receiver_sends_forced_rich_digest_and_persists_state(
     assert len(destination.rich_sent) == 1
     assert "<h1>🗓 Расписание</h1>" in destination.rich_sent[0][2]
     assert "<table bordered compact>" in destination.rich_sent[0][2]
-    assert 'rowspan="4" align="center" valign="middle"' in destination.rich_sent[0][2]
-    assert 'colspan="3" align="center" valign="middle"' in destination.rich_sent[0][2]
-    assert "<details" in destination.rich_sent[0][2]
+    assert '<td align="center" valign="middle">' in destination.rich_sent[0][2]
+    assert '<td align="left" valign="middle">' in destination.rich_sent[0][2]
+    assert "colspan=" not in destination.rich_sent[0][2]
+    assert "<details" not in destination.rich_sent[0][2]
     assert "Иванов И. И." in destination.rich_sent[0][2]
     assert destination.pinned == [(-1001, 78)]
     assert load_delivery_state(state_path).calendar_message_id == 78
@@ -719,8 +720,8 @@ async def test_backup_tick_updates_active_card_even_without_any_due_notification
     assert destination.sent_calls == []
     assert destination.rich_sent == []
     rich = destination.rich_edited[0][2]
-    assert "🟢 <b>Сейчас</b>" in rich
-    assert "ещё 1 ч 15 мин" in rich
+    assert "<b>Сейчас</b> · до 12:15" in rich
+    assert 'format="r">Через 1 ч 15 мин</tg-time>' in rich
     assert "https://example.org/calendar.ics" in rich
     assert "<mark>" not in rich
     assert load_delivery_state(state_path) == initial

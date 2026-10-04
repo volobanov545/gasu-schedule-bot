@@ -212,60 +212,59 @@ def render_rich_digest(
     local_now: datetime,
     calendar_feed_url: str | None = None,
 ) -> str:
-    """Render one mobile-first calendar with independently expandable days."""
+    """Show the useful day first, with one compact native two-column table."""
 
     fetched_local = envelope.fetched_at.astimezone(local_now.tzinfo)
-    current_monday = local_now.date() - timedelta(days=local_now.date().weekday())
-    start = max(envelope.horizon_start, current_monday)
-    end = envelope.horizon_end
+    today = local_now.date()
+    primary_day = _plan_day(envelope, local_now)
     blocks = [
         "<h1>🗓 Расписание</h1>",
-        f"<p><b>{escape(envelope.group_key)}</b> · <i>{_date_range(start, end)}</i></p>",
-        f"<aside>{_day_status(envelope, local_now)}</aside>",
-        "<hr/>",
+        f"<p><b>{escape(envelope.group_key)}</b></p>",
+        f"<p>{_day_status(envelope, local_now)}</p>",
     ]
-    for week_number, week_start in enumerate((start, start + timedelta(days=7))):
-        if week_start > end:
-            break
-        week_end = min(week_start + timedelta(days=6), end)
-        week_lessons = tuple(
-            lesson for lesson in envelope.lessons if week_start <= lesson.day <= week_end
-        )
-        week_open = " open" if week_number == 0 else ""
-        week_summary = _week_summary_line(week_number, week_start, week_end, week_lessons)
-        blocks.append(
-            f"<details{week_open}><summary>{week_summary}</summary>"
-        )
-        free_days: list[date] = []
-        for day_offset in range((week_end - week_start).days + 1):
-            day = week_start + timedelta(days=day_offset)
-            lessons = _lessons_on(envelope.lessons, day)
-            if not lessons:
-                free_days.append(day)
-                continue
-            open_today = (
-                " open"
-                if day == local_now.date() and _has_upcoming(lessons, local_now)
-                else ""
-            )
-            lesson_table = _rich_lesson_table(
-                lessons,
-                group_key=envelope.group_key,
-                local_now=local_now,
-            )
+    if primary_day is not None:
+        primary_lessons = _lessons_on(envelope.lessons, primary_day)
+        blocks.append(_plan_day_block(primary_day, primary_lessons, envelope, local_now))
+        primary_monday = primary_day - timedelta(days=primary_day.weekday())
+        other_days = sorted({
+            lesson.day for lesson in envelope.lessons
+            if primary_day < lesson.day <= primary_monday + timedelta(days=6)
+        })
+        if other_days:
             blocks.append(
-                f"<details{open_today}><summary>{_day_summary_line(day, lessons, local_now.date())}"
-                f"</summary>{lesson_table}</details>"
+                "<hr/><details><summary>Остальные дни недели</summary>"
+                + "".join(
+                    _plan_day_block(day, _lessons_on(envelope.lessons, day), envelope, local_now)
+                    for day in other_days
+                )
+                + "</details>"
             )
-        if free_days:
-            blocks.append(f"<p>☕ <i>Без пар: {_free_days_line(free_days)}</i></p>")
-        blocks.append("</details>")
+        next_days = sorted({
+            lesson.day for lesson in envelope.lessons
+            if lesson.day > primary_monday + timedelta(days=6)
+        })
+        if next_days:
+            blocks.append(
+                "<hr/><details><summary>Следующая неделя</summary>"
+                + "".join(
+                    _plan_day_block(day, _lessons_on(envelope.lessons, day), envelope, local_now)
+                    for day in next_days
+                )
+                + "</details>"
+            )
+    else:
+        blocks.append(
+            f"<p>В расписании до {envelope.horizon_end.day} "
+            f"{_MONTHS[envelope.horizon_end.month]} следующих занятий не найдено.</p>"
+        )
+    if primary_day is not None and primary_day != today:
+        blocks.insert(3, f"<p>Следующий учебный день: {_plan_date(primary_day)}</p>")
     if calendar_feed_url:
         blocks.append(
             "<hr/>"
             '<tg-button-row align="center">'
             f'<tg-button type="url" style="primary" url="{escape(calendar_feed_url)}">'
-            "📲 Подключить календарь</tg-button></tg-button-row>"
+            "Календарь телефона</tg-button></tg-button-row>"
         )
     blocks.append(
         f"<footer>Статус на {local_now:%H:%M} МСК<br>"
@@ -280,9 +279,13 @@ def render_digest_fallback(
     local_now: datetime,
     calendar_feed_url: str | None = None,
 ) -> str:
-    primary_day, relative_label = _digest_target(local_now)
-    lessons = _lessons_on(envelope.lessons, primary_day)
-    text = render_day_card(primary_day, lessons, relative_label=relative_label)
+    primary_day = _plan_day(envelope, local_now)
+    if primary_day is not None:
+        lessons = _lessons_on(envelope.lessons, primary_day)
+        relative_label = "Сегодня" if primary_day == local_now.date() else "Ближайший учебный день"
+        text = render_day_card(primary_day, lessons, relative_label=relative_label)
+    else:
+        text = "<b>Расписание</b>\nСледующих занятий в опубликованном расписании не найдено."
     if calendar_feed_url:
         text += (
             f'\n\n<a href="{escape(calendar_feed_url)}">'
@@ -658,8 +661,11 @@ def _has_upcoming(lessons: tuple[Lesson, ...], local_now: datetime) -> bool:
 
 def _day_status(envelope: ScheduleEnvelope, local_now: datetime) -> str:
     lessons = _lessons_on(envelope.lessons, local_now.date())
+    today_label = _plan_date(local_now.date())
+    if not envelope.horizon_start <= local_now.date() <= envelope.horizon_end:
+        return f"{today_label}<br>На сегодня нет опубликованных данных."
     if not lessons:
-        return "☕ <b>Сегодня без пар</b><br><i>Можно выдохнуть</i>"
+        return f"{today_label} — без пар"
     now_time = local_now.time().replace(tzinfo=None)
     current = next(
         (item for item in lessons if item.starts_at <= now_time < item.ends_at),
@@ -670,10 +676,15 @@ def _day_status(envelope: ScheduleEnvelope, local_now: datetime) -> str:
             item for item in lessons if item.starts_at == current.starts_at
         ))
         return (
-            f"🟢 <b>Сейчас</b> · {escape(current.subject)}"
-            f"<br><i>До {current.ends_at:%H:%M}"
-            f" · ещё {_minutes_phrase(_minutes_until(local_now, current.ends_at))}</i>"
+            f"<b>Сейчас</b> · до {current.ends_at:%H:%M}"
+            f"<br>Закончится {_relative_time(current, current.ends_at, local_now)}"
             + (f"<br>📍 {location}" if location else "")
+            + (
+                f"<br>Далее в {following.starts_at:%H:%M}"
+                if (following := next(
+                    (item for item in lessons if item.starts_at >= current.ends_at), None
+                )) is not None else ""
+            )
         )
     upcoming = next((item for item in lessons if item.starts_at > now_time), None)
     if upcoming is not None:
@@ -681,12 +692,49 @@ def _day_status(envelope: ScheduleEnvelope, local_now: datetime) -> str:
             item for item in lessons if item.starts_at == upcoming.starts_at
         ))
         return (
-            f"🔵 <b>Следующая · {upcoming.starts_at:%H:%M}</b>"
-            f"<br>{escape(upcoming.subject)}"
-            f"<br><i>Через {_minutes_phrase(_minutes_until(local_now, upcoming.starts_at))}</i>"
+            f"<b>Следующая · {upcoming.starts_at:%H:%M}</b>"
+            f"<br>{_relative_time(upcoming, upcoming.starts_at, local_now)}"
             + (f"<br>📍 {location}" if location else "")
         )
-    return "🌙 <b>На сегодня всё</b><br><i>До завтра</i>"
+    return f"{today_label}<br><b>На сегодня всё</b>"
+
+
+def _plan_date(day: date) -> str:
+    return f"{_SHORT_WEEKDAYS[day.weekday()]}, {day.day} {_MONTHS[day.month]}"
+
+
+def _plan_day(envelope: ScheduleEnvelope, local_now: datetime) -> date | None:
+    now_time = local_now.time().replace(tzinfo=None)
+    return next(iter(sorted({
+        lesson.day for lesson in envelope.lessons
+        if lesson.day > local_now.date()
+        or (lesson.day == local_now.date() and lesson.ends_at > now_time)
+    })), None)
+
+
+def _plan_day_block(
+    day: date,
+    lessons: tuple[Lesson, ...],
+    envelope: ScheduleEnvelope,
+    local_now: datetime,
+) -> str:
+    label = f"{_WEEKDAYS[day.weekday()].capitalize()}, {day.day} {_MONTHS[day.month]}"
+    if day == local_now.date():
+        label = f"Сегодня · {label}"
+    count = len(_slot_groups(lessons))
+    return (
+        f"<h2>{label}</h2><p>{count} {_pair_word(count)} · {_time_span(lessons)}</p>"
+        + _rich_lesson_table(lessons, group_key=envelope.group_key, local_now=local_now)
+    )
+
+
+def _relative_time(lesson: Lesson, value: time, local_now: datetime) -> str:
+    target = datetime.combine(lesson.day, value, tzinfo=local_now.tzinfo)
+    minutes = max(0, ceil((target - local_now).total_seconds() / 60))
+    return (
+        f'<tg-time unix="{int(target.timestamp())}" format="r">'
+        f"Через {_minutes_phrase(minutes)}</tg-time>"
+    )
 
 
 def _compact_slot_location(lessons: tuple[Lesson, ...]) -> str:
@@ -754,32 +802,18 @@ def _rich_lesson_table(
             state_label = "<b>Далее</b><br>"
         else:
             state_label = ""
-        time_cell_tag = "th" if is_next else "td"
-        row_span = 5 if subgroup else 4
+        if not state_label and lesson.day > today and lesson.starts_at == lessons[0].starts_at:
+            state_label = "<b>Первая</b><br>"
         rows.append(
-            f'<tr><{time_cell_tag} rowspan="{row_span}" '
-            'align="center" valign="middle">'
+            '<tr><td align="center" valign="middle">'
             f"{state_label}<b>{lesson.starts_at:%H:%M}</b>"
-            f"<br><i>{lesson.ends_at:%H:%M}</i></{time_cell_tag}>"
-            f'<th colspan="3" align="center" valign="middle">{subject}</th></tr>'
-            '<tr>'
-            '<th align="center" valign="middle">Тип</th>'
-            '<th align="center" valign="middle">Ауд.</th>'
-            '<th align="center" valign="middle">Корп.</th>'
-            '</tr>'
-            '<tr>'
-            f'<td align="center" valign="middle">{lesson_type}</td>'
-            f'<td align="center" valign="middle"><b>{room}</b></td>'
-            f'<td align="center" valign="middle"><b>{building}</b></td>'
-            '</tr>'
-            f'<tr><td colspan="3" align="center" valign="middle">'
-            f"👤 <i>{teacher}</i></td></tr>"
+            f"<br>{lesson.ends_at:%H:%M}</td>"
+            f'<td align="left" valign="middle">{subject}'
+            f"<br>Ауд. <b>{room}</b> · корп. <b>{building}</b>"
+            f"<br>{lesson_type}<br>{teacher}"
+            + (f"<br>Подгруппа: {subgroup}" if subgroup else "")
+            + "</td></tr>"
         )
-        if subgroup:
-            rows.append(
-                f'<tr><td colspan="3" align="left" valign="middle">'
-                f"👥 <i>{subgroup}</i></td></tr>"
-            )
     return f"<table bordered compact>{''.join(rows)}</table>"
 
 
