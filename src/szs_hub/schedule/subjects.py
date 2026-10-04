@@ -4,8 +4,8 @@ SUBJECT_ALIASES: tuple[tuple[str, str], ...] = (
     ("Безопасность жизнедеятельности", "БЖД"),
     ("Водоснабжение и водоотведение", "ВиВ"),
     ("Информационное моделирование в строительстве", "Инф. моделирование"),
-    ("Средства механизации строительства", "Механизация строительства"),
-    ("Строительная механика", "Строймеханика"),
+    ("Средства механизации строительства", "СМС"),
+    ("Строительная механика", "Строймех."),
 )
 
 _ALIASES = {full.casefold(): short for full, short in SUBJECT_ALIASES}
@@ -28,9 +28,9 @@ def bot_description() -> str:
 
 
 def bot_short_description() -> str:
-    """The two non-obvious acronyms fit directly on the bot's profile page."""
+    """All three acronyms fit directly on the bot's 120-character profile page."""
     return "\n".join(
         f"{short} — {full.lower()}"
         for full, short in SUBJECT_ALIASES
-        if short in {"БЖД", "ВиВ"}
+        if short in {"БЖД", "ВиВ", "СМС"}
     )

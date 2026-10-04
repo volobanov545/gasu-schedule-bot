@@ -40,6 +40,7 @@ def test_unknown_subjects_not_guessed_and_glossary_fits_telegram_limits() -> Non
     assert len(bot_short_description()) <= 120
     assert "ВиВ — водоснабжение и водоотведение" in bot_short_description()
     assert "БЖД — безопасность жизнедеятельности" in bot_short_description()
+    assert "СМС — средства механизации строительства" in bot_short_description()
 
 
 def test_aliases_render_without_changing_snapshot_or_phone_calendar() -> None:
