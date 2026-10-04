@@ -65,6 +65,18 @@ time. The actual source only gives initials, which were not invented into names.
 
 ## Residual test gaps
 
+Final subject-dictionary refinement (e3bd886), explicitly requested by the user:
+Строймех., СМС, ПМ, ИМС plus БЖД, ВиВ, Мех. грунтов and Ознак. практика.
+All eight current subjects were enumerated from the live ICS original SUMMARY
+values, not guessed from a mockup. Full description 399/512 characters; profile
+108/120 contains concise meanings of the five acronyms. Exact expansions remain
+in the complete description. Delivery run 37195132650 and calendar deploy both
+passed; the send log confirms message_id=15396 at 10:23 UTC. Final native
+558×849 screenshot `design/telegram-subject-aliases-final.png` shows the Tuesday
+four-row table (БЖД, ВиВ, Строймех., ИМС) unclipped with no subject wrapping.
+Other aliases are covered by automated tests, not claimed as visually inspected.
+365 tests, Ruff and strict mypy (69 files) passed. No extra glossary in the card.
+
 Iteration 4 (a8c3730): user requested a stable short-subject dictionary and glossary
 in the bot description instead of any new card disclosure. Native 558×849 evidence
 `design/telegram-subject-aliases-after.png` shows БЖД, ВиВ, Строймеханика and
