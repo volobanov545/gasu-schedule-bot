@@ -3,9 +3,12 @@
 SUBJECT_ALIASES: tuple[tuple[str, str], ...] = (
     ("Безопасность жизнедеятельности", "БЖД"),
     ("Водоснабжение и водоотведение", "ВиВ"),
-    ("Информационное моделирование в строительстве", "Инф. моделирование"),
+    ("Информационное моделирование в строительстве", "ИМС"),
+    ("Механика грунтов", "Мех. грунтов"),
+    ("Проектный менеджмент", "ПМ"),
     ("Средства механизации строительства", "СМС"),
     ("Строительная механика", "Строймех."),
+    ("Учебная практика/Ознакомительная практика", "Ознак. практика"),
 )
 
 _ALIASES = {full.casefold(): short for full, short in SUBJECT_ALIASES}
@@ -21,16 +24,14 @@ def bot_description() -> str:
     """Keep the complete glossary within Telegram's 512-character limit."""
     glossary = "\n".join(f"{short} — {full}" for full, short in SUBJECT_ALIASES)
     return (
-        "Расписание 3-СУЗСс-3 СПбГАСУ. Одна обновляемая карточка.\n\n"
-        "Сокращения предметов:\n" + glossary
-        + "\n\nВ календаре названия полные. Остальные предметы не сокращаем."
+        "Расписание 3-СУЗСс-3 СПбГАСУ.\n\nСокращения предметов:\n" + glossary
+        + "\n\nВ календаре названия полные."
     )
 
 
 def bot_short_description() -> str:
-    """All three acronyms fit directly on the bot's 120-character profile page."""
-    return "\n".join(
-        f"{short} — {full.lower()}"
-        for full, short in SUBJECT_ALIASES
-        if short in {"БЖД", "ВиВ", "СМС"}
+    """Brief meanings in the profile; the description contains exact full names."""
+    return (
+        "БЖД — безопасность; ВиВ — вода/стоки; ИМС — инфомоделирование; "
+        "ПМ — проектный менеджмент; СМС — механизация."
     )

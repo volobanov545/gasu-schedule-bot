@@ -33,14 +33,16 @@ def test_known_subject_alias_is_stable_and_case_whitespace_tolerant(full, short)
 
 
 def test_unknown_subjects_not_guessed_and_glossary_fits_telegram_limits() -> None:
-    assert subject_label("Механика грунтов") == "Механика грунтов"
+    assert subject_label("Инженерная геология") == "Инженерная геология"
     assert subject_label("<Новый & предмет>") == "<Новый & предмет>"
     assert len({short.casefold() for _, short in SUBJECT_ALIASES}) == len(SUBJECT_ALIASES)
     assert len(bot_description()) <= 512
     assert len(bot_short_description()) <= 120
-    assert "ВиВ — водоснабжение и водоотведение" in bot_short_description()
-    assert "БЖД — безопасность жизнедеятельности" in bot_short_description()
-    assert "СМС — средства механизации строительства" in bot_short_description()
+    for acronym in ("БЖД", "ВиВ", "ИМС", "ПМ", "СМС"):
+        assert f"{acronym} — " in bot_short_description()
+    assert subject_label("Строительная механика") == "Строймех."
+    assert subject_label("Средства механизации строительства") == "СМС"
+    assert subject_label("Проектный менеджмент") == "ПМ"
 
 
 def test_aliases_render_without_changing_snapshot_or_phone_calendar() -> None:
