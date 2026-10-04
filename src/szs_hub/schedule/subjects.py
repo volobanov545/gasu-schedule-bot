@@ -28,11 +28,16 @@ def subject_reference_name(value: str) -> str | None:
 def subject_reference_definitions(subjects: Iterable[str]) -> str:
     """Define each used abbreviation once, including those in collapsed days."""
     used = {subject_reference_name(subject) for subject in subjects}
-    return "".join(
+    entries = "".join(
+        f'<p><b>{escape(short)}</b> — '
         f'<tg-reference name="{_REFERENCE_NAMES[full.casefold()]}">{escape(full)}</tg-reference>'
-        for full, _ in SUBJECT_ALIASES
+        "</p>"
+        for full, short in SUBJECT_ALIASES
         if _REFERENCE_NAMES[full.casefold()] in used
     )
+    if not entries:
+        return ""
+    return '<details><summary>Сокращения</summary>' + entries + "</details>"
 
 
 def subject_label(value: str) -> str:

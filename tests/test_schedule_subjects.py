@@ -64,6 +64,11 @@ def test_aliases_render_without_changing_snapshot_or_phone_calendar() -> None:
         assert rich.count(f'<tg-reference name="{reference}">{full}</tg-reference>') == 1
         assert short in fallback
     assert "Полные названия" not in rich and "Сокращения предметов" not in rich
+    glossary = rich.split('<details><summary>Сокращения</summary>', 1)[1]
+    assert glossary.index("</details>") < glossary.index("<footer>")
+    footer = rich.split("<footer>", 1)[1]
+    assert "tg-reference" not in footer
+    assert all(full not in footer for full, _ in SUBJECT_ALIASES)
     assert encode_schedule_envelope(envelope) == encoded_before
     assert decode_schedule_envelope(encoded_before).lessons == lessons
     calendar = render_icalendar(envelope).replace("\r\n ", "")
@@ -75,7 +80,10 @@ def test_reference_targets_are_unique_and_deduplicated_for_repeated_lessons() ->
     full = "Проектный менеджмент"
     reference = subject_reference_name(full)
     definitions = subject_reference_definitions([full, full.upper(), "  " + full + "  "])
-    assert definitions == f'<tg-reference name="{reference}">{full}</tg-reference>'
+    assert definitions == (
+        '<details><summary>Сокращения</summary><p><b>ПМ</b> — '
+        f'<tg-reference name="{reference}">{full}</tg-reference></p></details>'
+    )
     assert subject_reference_name("  ПРОЕКТНЫЙ\nМЕНЕДЖМЕНТ ") == reference
     assert subject_reference_name(full + " (спецкурс)") is None
     assert subject_reference_definitions(["Неизвестный предмет"]) == ""

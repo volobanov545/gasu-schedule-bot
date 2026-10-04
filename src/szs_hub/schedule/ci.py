@@ -272,11 +272,10 @@ def render_rich_digest(
             f'<tg-button type="url" style="primary" url="{escape(calendar_feed_url)}">'
             "Календарь телефона</tg-button></tg-button-row>"
         )
+    blocks.append(subject_reference_definitions(lesson.subject for lesson in envelope.lessons))
     blocks.append(
         f"<footer>Статус на {local_now:%H:%M} МСК<br>"
-        f"Сайт проверен {fetched_local:%d.%m · %H:%M} МСК"
-        + subject_reference_definitions(lesson.subject for lesson in envelope.lessons)
-        + "</footer>"
+        f"Сайт проверен {fetched_local:%d.%m · %H:%M} МСК</footer>"
     )
     return "".join(blocks)
 
