@@ -527,6 +527,8 @@ async def test_quiet_mode_keeps_card_without_routine_posts(
     assert len(destination.rich_sent) == int(notify)
     if notify:
         assert "https://t.me/c/1/42/70" in destination.rich_sent[0][2]
+        assert '<a href="https://t.me/c/1/42/70">' in destination.rich_sent[0][3]
+        assert "<p>" not in destination.rich_sent[0][3]
     assert load_delivery_state(path).previous == current
     # An identical snapshot must not re-send the urgent alert.
     await publish_dispatched(
