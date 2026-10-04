@@ -65,6 +65,21 @@ time. The actual source only gives initials, which were not invented into names.
 
 ## Residual test gaps
 
+Iteration 4 (a8c3730): user requested a stable short-subject dictionary and glossary
+in the bot description instead of any new card disclosure. Native 558×849 evidence
+`design/telegram-subject-aliases-after.png` shows БЖД, ВиВ, Строймеханика and
+Инф. моделирование, all on one line in the observed Tuesday table. Subject aliases
+are display-only; teachers, lesson identity, diff inputs and ICS remain intact.
+Telegram controls automatic column sizing: the time column grew after the titles
+became shorter, but content remains readable and unclipped. No claim of universal
+one-screen fit or Android/iOS verification. No marker fill or additional UI blocks.
+`design/telegram-subject-glossary-profile.png` shows both acronym expansions on
+the actual bot profile. The full 512-character description contains all five
+mappings, verified by CI readback; the 120-character profile contains БЖД/ВиВ.
+GitHub profile run 37194703346, tests 37194703339, and delivery/calendar run
+37194781969 all succeeded. Native topic still contains one message, refreshed at
+13:15 MSK. 362 local tests, Ruff and strict mypy for 69 source files passed.
+
 Android/iOS rendering, arbitrary custom themes, large text, and actual ticking cadence of the native relative date entity are not directly verified. Automated tests cover timestamps and boundaries; the Sunday live card has no countdown to test visually. Main CI delivery and phone calendar deployment succeeded on run 37192401639 with message_id=15396.
 
 final result: passed
