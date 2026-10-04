@@ -489,7 +489,10 @@ async def publish_dispatched(
                         notice_changes,
                         fetched_at=envelope.fetched_at.astimezone(local_now.tzinfo),
                     ) + calendar_link,
-                    fallback_html=render_changes_fallback(notice_changes) + calendar_link,
+                    fallback_html=render_changes_fallback(notice_changes) + (
+                        f'\n\n<a href="{calendar_url}">Открыть расписание</a>'
+                        if calendar_url else ""
+                    ),
                     silent=not changes_are_urgent(notice_changes, today=local_now.date()),
                 )
             )
