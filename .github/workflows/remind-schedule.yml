@@ -10,15 +10,14 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: szs-schedule-state
-  queue: max
-  cancel-in-progress: false
-
 jobs:
   remind:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    concurrency:
+      group: szs-schedule-state
+      queue: single
+      cancel-in-progress: false
     env:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TARGET_CHAT_ID: ${{ secrets.TARGET_CHAT_ID }}

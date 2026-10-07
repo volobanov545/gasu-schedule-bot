@@ -799,7 +799,10 @@ def test_ci_bridge_workflows_keep_telegram_token_out_of_gitverse() -> None:
     assert "szs-hub publish-dispatched" in receiver
     for state_consumer in (receiver, reminder):
         assert "group: szs-schedule-state" in state_consumer
-        assert "queue: max" in state_consumer
+        assert "queue: single" in state_consumer
+        assert "\nconcurrency:" not in state_consumer
+        assert "\n    concurrency:\n      group: szs-schedule-state" in state_consumer
+        assert "queue: max" not in state_consumer
         assert "cancel-in-progress: false" in state_consumer
         assert "key: schedule-state-v3-${{ github.run_id }}-${{ github.run_attempt }}" in (
             state_consumer
@@ -810,5 +813,8 @@ def test_ci_bridge_workflows_keep_telegram_token_out_of_gitverse() -> None:
     assert "actions/configure-pages@v6" in receiver
     assert "actions/upload-pages-artifact@v4" in receiver
     assert "actions/deploy-pages@v4" in receiver
+    calendar_job = receiver.split("\n  deploy-calendar:", 1)[1]
+    assert "group: szs-calendar-pages" in calendar_job
+    assert "group: szs-schedule-state" not in calendar_job
     assert "pages: write" in receiver
     assert "volobanov545.github.io/gasu-schedule-bot/calendar.ics" in receiver

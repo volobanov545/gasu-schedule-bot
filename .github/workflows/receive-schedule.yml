@@ -15,15 +15,16 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: szs-schedule-state
-  queue: max
-  cancel-in-progress: false
-
 jobs:
   send:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # Serialize only state writers. A queued Pages deployment must never hold
+    # the Telegram lock. Keep only the newest pending refresh, not days of work.
+    concurrency:
+      group: szs-schedule-state
+      queue: single
+      cancel-in-progress: false
     env:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TARGET_CHAT_ID: ${{ secrets.TARGET_CHAT_ID }}
@@ -87,6 +88,10 @@ jobs:
     needs: send
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    concurrency:
+      group: szs-calendar-pages
+      queue: single
+      cancel-in-progress: false
     permissions:
       contents: read
       pages: write
