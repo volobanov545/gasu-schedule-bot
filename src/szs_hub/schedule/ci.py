@@ -300,6 +300,11 @@ def render_digest_fallback(
             f'\n\n<a href="{escape(calendar_feed_url)}">'
             "Добавить в календарь телефона</a>"
         )
+    fetched_local = envelope.fetched_at.astimezone(local_now.tzinfo)
+    text += (
+        f"\n\n<i>Статус на {local_now:%H:%M} МСК\n"
+        f"Сайт проверен {fetched_local:%d.%m · %H:%M} МСК</i>"
+    )
     return text
 
 

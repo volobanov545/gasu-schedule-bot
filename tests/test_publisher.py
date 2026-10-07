@@ -463,6 +463,51 @@ async def test_regular_snapshot_refreshes_live_status_on_the_pinned_card(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_every_unchanged_check_updates_both_status_formats_without_new_messages(
+    tmp_path: Path,
+) -> None:
+    state_path = tmp_path / "state.json"
+    previous = _reminder_envelope()
+    save_delivery_state(
+        state_path, ScheduleDeliveryState(previous=previous, calendar_message_id=70),
+    )
+    settings = _reminder_settings().model_copy(update={"schedule_quiet_mode": True})
+    destination = FakeDestination()
+    for minute in (0, 15):
+        checked_at = datetime(2026, 9, 11, 8, minute, tzinfo=UTC)
+        current = replace(previous, fetched_at=checked_at)
+        ids = await publish_dispatched(
+            settings,
+            text_b64=encode_schedule_envelope(current),
+            group_key=current.group_key,
+            destination=destination,
+            state_path=state_path,
+            clock=lambda checked_at=checked_at: checked_at + timedelta(minutes=1),
+        )
+        assert ids == (70,)
+        for rendered in destination.rich_edited[-1][2:]:
+            assert f"Сайт проверен 11.09 · 11:{minute:02} МСК" in rendered
+            assert f"Статус на 11:{minute + 1:02} МСК" in rendered
+        assert load_delivery_state(state_path).previous == current
+    assert len(destination.rich_edited) == 2
+    assert destination.rich_edited[0][2] != destination.rich_edited[1][2]
+    assert destination.sent_calls == []
+    assert destination.rich_sent == []
+
+    # A clock refresh is not a successful source check; keep its timestamp honest.
+    await publish_due_reminder(
+        settings, destination=destination, state_path=state_path,
+        clock=lambda: datetime(2026, 9, 11, 8, 22, tzinfo=UTC),
+    )
+    for rendered in destination.rich_edited[-1][2:]:
+        assert "Сайт проверен 11.09 · 11:15 МСК" in rendered
+        assert "Статус на 11:22 МСК" in rendered
+    assert len(destination.rich_edited) == 3
+    assert destination.sent_calls == []
+    assert destination.rich_sent == []
+
+
+@pytest.mark.asyncio
 async def test_fresh_gitverse_snapshot_is_also_a_deduplicated_reminder_tick(
     tmp_path: Path,
 ) -> None:
