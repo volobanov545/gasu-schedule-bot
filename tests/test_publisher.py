@@ -835,7 +835,10 @@ def test_ci_bridge_workflows_keep_telegram_token_out_of_gitverse() -> None:
     assert "secrets.BRIDGE_GH_TOKEN" in gitverse
     assert "github-server-url: https://github.com" in gitverse
     assert "repository: volobanov545/gasu-schedule-bot" in gitverse
-    assert "szs-hub dispatch-tomorrow" in gitverse
+    assert "python -m szs_hub.schedule.bridge_cli" in gitverse
+    assert "-r requirements/bridge.txt" in gitverse
+    assert "PYTHONPATH: src" in gitverse
+    assert "pip install ." not in gitverse
     assert "TELEGRAM_BOT_TOKEN" not in gitverse
     assert "inputs.text_b64" in receiver
     assert "actions/cache/restore@v6" in receiver

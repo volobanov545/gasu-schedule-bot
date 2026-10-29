@@ -36,6 +36,8 @@ jobs:
       AI_KILL_SWITCH: "true"
       SCHEDULE_FORCE_DIGEST: ${{ inputs.force_digest }}
       SPBGASU_PROBE_SCHEMA: ${{ inputs.probe_schema }}
+      PYTHONPATH: src
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
 
     steps:
       - name: Check out the current GitHub source
@@ -51,17 +53,11 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-          cache: pip
 
-      - name: Install schedule bridge
-        run: python -m pip install .
+      # GitVerse's runner does not support setup-python's GitHub cache service.
+      # Keep cold installs small instead of relying on a cache that never saves.
+      - name: Install only the schedule bridge dependencies
+        run: python -m pip install --only-binary=:all: --timeout 30 --retries 2 -r requirements/bridge.txt
 
       - name: Fetch and hand off the two-week schedule
-        run: |
-          if [ "$SPBGASU_PROBE_SCHEMA" = "true" ]; then
-            szs-hub probe-spbgasu
-          elif [ "$SCHEDULE_FORCE_DIGEST" = "true" ]; then
-            szs-hub dispatch-tomorrow --force-digest
-          else
-            szs-hub dispatch-tomorrow
-          fi
+        run: python -m szs_hub.schedule.bridge_cli

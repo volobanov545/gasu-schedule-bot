@@ -7,19 +7,14 @@ import binascii
 import re
 from collections.abc import Callable
 from contextlib import suppress
-from datetime import datetime, timedelta, tzinfo
+from datetime import UTC, datetime, timedelta, tzinfo
 from datetime import timezone as fixed_timezone
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
-from aiogram import Bot
-from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
-from pydantic import SecretStr
 
-from szs_hub.config import Settings
 from szs_hub.domain.schedule import Lesson
 from szs_hub.schedule.calendar import render_icalendar
 from szs_hub.schedule.ci import (
@@ -48,7 +43,31 @@ from szs_hub.schedule.spbgasu import (
     materialize_week,
     parity_for_week,
 )
-from szs_hub.storage.base import utc_now
+
+if TYPE_CHECKING:
+    from aiogram import Bot
+    from pydantic import SecretStr
+
+    from szs_hub.config import Settings
+
+
+def utc_now() -> datetime:
+    """Keep stateless publication independent of the SQLAlchemy runtime."""
+
+    return datetime.now(UTC)
+
+
+class ScheduleBridgeSettings(Protocol):
+    """The source-side bridge only needs these three application settings."""
+
+    @property
+    def spbgasu_group_id(self) -> str | None: ...
+
+    @property
+    def spbgasu_base_url(self) -> str: ...
+
+    @property
+    def timezone(self) -> str: ...
 
 
 class ScheduleSource(Protocol):
@@ -298,6 +317,10 @@ async def publish_tomorrow(
     schedule_source = source or SpbGasuClient(base_url=settings.spbgasu_base_url)
     bot: Bot | None = None
     if destination is None:
+        from aiogram import Bot
+        from aiogram.client.default import DefaultBotProperties
+        from aiogram.enums import ParseMode
+
         bot = Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
         schedule_destination: ScheduleDestination = AiogramScheduleDestination(bot)
     else:
@@ -319,7 +342,7 @@ async def publish_tomorrow(
 
 
 async def dispatch_tomorrow(
-    settings: Settings,
+    settings: ScheduleBridgeSettings,
     *,
     github_token: str,
     github_repository: str,
@@ -342,7 +365,7 @@ async def dispatch_tomorrow(
 
 
 async def dispatch_schedule(
-    settings: Settings,
+    settings: ScheduleBridgeSettings,
     *,
     github_token: str,
     github_repository: str,
