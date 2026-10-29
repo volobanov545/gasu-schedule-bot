@@ -3,9 +3,9 @@ name: Remind about today's classes
 on:
   workflow_dispatch:
   schedule:
-    # Backup reminder sweep every 15 minutes, 07:07-22:52 Moscow time,
+    # Backup reminder sweep every 15 minutes, 07:08-22:53 Moscow time,
     # Monday-Saturday. Offset minutes avoid GitHub's busiest :00 boundary.
-    - cron: "7,22,37,52 4-19 * * 1-6"
+    - cron: "8,23,38,53 4-19 * * 1-6"
 
 permissions:
   contents: read

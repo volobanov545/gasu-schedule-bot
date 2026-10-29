@@ -811,7 +811,7 @@ def test_reminder_cron_is_a_frequent_off_peak_backup() -> None:
     workflow = (
         Path(__file__).parents[1] / ".github" / "workflows" / "remind-schedule.yml"
     ).read_text(encoding="utf-8")
-    assert 'cron: "7,22,37,52 4-19 * * 1-6"' in workflow
+    assert 'cron: "8,23,38,53 4-19 * * 1-6"' in workflow
     assert "Offset minutes avoid GitHub's busiest :00 boundary" in workflow
 
 

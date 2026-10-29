@@ -82,9 +82,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     concurrency:
-      group: szs-calendar-pages
-      queue: single
-      cancel-in-progress: false
+      # A newer feed replaces an obsolete or stuck Pages deployment, never
+      # the already completed Telegram state writer.
+      group: szs-calendar-pages-v2
+      cancel-in-progress: true
     permissions:
       contents: read
       pages: write
