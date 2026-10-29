@@ -1601,3 +1601,12 @@ https://github.com/volobanov545/gasu-schedule-bot/releases/download/ayu-probe-v1
 JSON и legacy-state, хранилище без dict, ошибки сохранения ID, сериализация,
 неизвестные ответы и некорректные IDs, сохранение rich-результата после кнопки3.
 42 теста пробы проходят; повторный тест на Pixel нужен после обновления.
+
+Версия1.0.1 опубликована коммитомb27312e. Полная локальная проверка:490тестов,
+Ruff и mypy72файла. GitHub CI40974784630 / job123800015589 — success.
+Prerelease ayu-probe-v1.0.1 ID428503479, asset690275752,15839байт.
+Публичный GET подтвердил SHA256
+9DDE7E5E8826B2B870B394019659339ADA9095A8024B902BEADA4DD71C1F23C5,
+совпадающий с протестированным исходником/установочным файлом. Новый файл:
+https://github.com/volobanov545/gasu-schedule-bot/releases/download/ayu-probe-v1.0.1/gasu_ayu_probe.plugin
+На момент передачи версия1.0.1 ещё не проверена пользователем на Pixel.
