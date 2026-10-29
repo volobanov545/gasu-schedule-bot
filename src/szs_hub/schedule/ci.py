@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import binascii
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timedelta
 from html import escape
 from math import ceil
@@ -26,6 +26,7 @@ from szs_hub.schedule.subjects import (
     subject_reference_name,
 )
 from szs_hub.schedule.typography import location_text, table_text, teacher_text
+from szs_hub.schedule.weekend_plan import is_weekend_plan_lesson, weekend_plan_lessons
 
 _SCHEMA_VERSION = 3
 _MAX_ENCODED_BYTES = 65_000
@@ -220,6 +221,7 @@ def render_rich_digest(
 ) -> str:
     """Show the useful day first, with one compact native two-column table."""
 
+    envelope = _display_envelope(envelope, local_now.date())
     fetched_local = envelope.fetched_at.astimezone(local_now.tzinfo)
     today = local_now.date()
     primary_day = _plan_day(envelope, local_now)
@@ -286,6 +288,7 @@ def render_digest_fallback(
     local_now: datetime,
     calendar_feed_url: str | None = None,
 ) -> str:
+    envelope = _display_envelope(envelope, local_now.date())
     primary_day = _plan_day(envelope, local_now)
     if primary_day is not None:
         lessons = _lessons_on(envelope.lessons, primary_day)
@@ -306,6 +309,18 @@ def render_digest_fallback(
         f"Сайт проверен {fetched_local:%d.%m · %H:%M} МСК</i>"
     )
     return text
+
+
+def _display_envelope(envelope: ScheduleEnvelope, today: date) -> ScheduleEnvelope:
+    """Decorate only the view, never the stored snapshot, ICS, diff or reminders."""
+
+    extras = weekend_plan_lessons(
+        today=today,
+        horizon_start=envelope.horizon_start,
+        horizon_end=envelope.horizon_end,
+        lesson_days=(lesson.day for lesson in envelope.lessons),
+    )
+    return replace(envelope, lessons=(*envelope.lessons, *extras)) if extras else envelope
 
 
 def render_evening_summary(
@@ -832,14 +847,18 @@ def _rich_lesson_table(
             state_label = ""
         if not state_label and lesson.day > today and lesson.starts_at == lessons[0].starts_at:
             state_label = "<b>Первая</b><br>"
+        metadata = (
+            ""
+            if is_weekend_plan_lesson(lesson)
+            else f"<br>{location}<br><i>{lesson_type}</i><br>{teacher}"
+            + (f"<br>Подгруппа: {subgroup}" if subgroup else "")
+        )
         rows.append(
             '<tr><td align="center" valign="middle">'
             f"{state_label}<b>{lesson.starts_at:%H:%M}</b>"
             f"<br>{lesson.ends_at:%H:%M}</td>"
             f'<td align="left" valign="top">{subject}'
-            f"<br>{location}"
-            f"<br><i>{lesson_type}</i><br>{teacher}"
-            + (f"<br>Подгруппа: {subgroup}" if subgroup else "")
+            + metadata
             + "</td></tr>"
         )
     return f"<table bordered compact>{''.join(rows)}</table>"
