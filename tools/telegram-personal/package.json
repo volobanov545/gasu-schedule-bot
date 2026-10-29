@@ -1,0 +1,8 @@
+{
+  "name": "gasu-schedule-personal-sender",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": { "test": "node --test tests.mjs", "login": "node login.mjs" },
+  "dependencies": { "@mtcute/node": "0.32.7", "long": "5.3.2" }
+}

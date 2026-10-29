@@ -94,6 +94,10 @@ def build_parser() -> argparse.ArgumentParser:
         "publish-reminder",
         help="отправить напоминание о первой или следующей паре, если оно наступило",
     )
+    subcommands.add_parser(
+        "check-personal-sender",
+        help="проверить личный Telegram и права без публикаций и чтения переписки",
+    )
 
     alert = subcommands.add_parser(
         "alert", help="отправить владельцу системное оповещение"
@@ -150,6 +154,27 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "doctor":
         return _doctor(settings)
+    if args.command == "check-personal-sender":
+        from szs_hub.publisher import _make_destination, _prepare_destination
+
+        async def check_personal() -> None:
+            if settings.schedule_sender != "user":
+                raise ValueError("check-personal-sender requires SCHEDULE_SENDER=user")
+            destination = _make_destination(settings)
+            try:
+                await _prepare_destination(destination)
+            finally:
+                close = getattr(destination, "aclose", None)
+                if close is not None:
+                    await close()
+
+        try:
+            asyncio.run(check_personal())
+        except Exception as exc:
+            print(f"Личный Telegram не готов: {type(exc).__name__}: {exc}", file=sys.stderr)
+            return 1
+        print("Личный Telegram проверен. Сообщения не отправлялись; переписка не читалась.")
+        return 0
     if args.command == "import-apply":
         return _import_apply(
             settings,

@@ -25,6 +25,16 @@ jobs:
       - name: Install project and test tools
         run: python -m pip install ".[dev]"
 
+      - name: Set up personal sender test runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install and test the optional personal sender
+        run: |
+          npm ci --prefix tools/telegram-personal --no-audit --no-fund
+          npm test --prefix tools/telegram-personal
+
       - name: Lint
         run: ruff check .
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import re
 from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timedelta
 from html import escape
@@ -108,6 +109,9 @@ class ScheduleDeliveryState:
     last_digest_date: date | None = None
     sent_reminders: tuple[str, ...] = ()
     calendar_message_id: int | None = None
+    # Personal cards are separate from the bot's card, bound to user/chat/topic.
+    # This is routing metadata only, never an authorization session.
+    user_calendar_cards: tuple[tuple[str, int], ...] = ()
 
 
 def encode_schedule_envelope(envelope: ScheduleEnvelope) -> str:
@@ -149,11 +153,22 @@ def load_delivery_state(path: Path) -> ScheduleDeliveryState:
             if isinstance(reminders_raw, list)
             else ()
         )
+        cards_raw = payload.get("user_calendar_cards", {})
+        user_cards = (
+            tuple(sorted(
+                (key, value) for key, value in cards_raw.items()
+                if isinstance(key, str)
+                and re.fullmatch(r"user:[1-9][0-9]*:-[1-9][0-9]*:[1-9][0-9]*", key)
+                and isinstance(value, int) and not isinstance(value, bool) and value > 0
+            ))
+            if isinstance(cards_raw, dict) else ()
+        )
         return ScheduleDeliveryState(
             previous=previous,
             last_digest_date=digest_day,
             sent_reminders=reminders[-100:],
             calendar_message_id=_optional_positive_int(payload.get("calendar_message_id")),
+            user_calendar_cards=user_cards,
         )
     except (OSError, ValueError, TypeError, AttributeError, json.JSONDecodeError):
         return ScheduleDeliveryState()
@@ -162,12 +177,13 @@ def load_delivery_state(path: Path) -> ScheduleDeliveryState:
 def save_delivery_state(path: Path, state: ScheduleDeliveryState) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
-        "schema": 3,
+        "schema": 4,
         "last_digest_date": (
             state.last_digest_date.isoformat() if state.last_digest_date else None
         ),
         "sent_reminders": list(state.sent_reminders[-100:]),
         "calendar_message_id": state.calendar_message_id,
+        "user_calendar_cards": dict(state.user_calendar_cards),
         "previous": _envelope_dict(state.previous) if state.previous else None,
     }
     path.write_text(

@@ -7,6 +7,7 @@ import binascii
 import re
 from collections.abc import Callable
 from contextlib import suppress
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta, tzinfo
 from datetime import timezone as fixed_timezone
 from pathlib import Path
@@ -304,6 +305,8 @@ async def publish_tomorrow(
 ) -> int:
     """Fetch and publish tomorrow's schedule without a database or update receiver."""
 
+    if settings.schedule_sender == "user":
+        raise ValueError("personal sender uses publish-dispatched, not legacy publish-tomorrow")
     token = _required_secret(settings.telegram_bot_token, "TELEGRAM_BOT_TOKEN")
     chat_id = _required_int(settings.target_chat_id, "TARGET_CHAT_ID", negative=True)
     topic_id = _required_int(settings.schedule_topic_id, "SCHEDULE_TOPIC_ID", negative=False)
@@ -420,7 +423,6 @@ async def publish_dispatched(
 ) -> tuple[int, ...]:
     """Compare, format and publish a validated GitVerse schedule envelope."""
 
-    token = _required_secret(settings.telegram_bot_token, "TELEGRAM_BOT_TOKEN")
     chat_id = _required_int(settings.target_chat_id, "TARGET_CHAT_ID", negative=True)
     topic_id = _required_int(settings.schedule_topic_id, "SCHEDULE_TOPIC_ID", negative=False)
     expected_group = _required_text(settings.spbgasu_group_id, "SPBGASU_GROUP_ID")
@@ -430,10 +432,13 @@ async def publish_dispatched(
     legacy_text = _decode_legacy_card(text_b64)
     own_destination = destination is None
     if destination is None:
-        schedule_destination: RichScheduleDestination = TelegramBotApiDestination(token)
+        schedule_destination: RichScheduleDestination = _make_destination(settings)
     else:
         schedule_destination = destination
     try:
+        if own_destination:
+            await _prepare_destination(schedule_destination)
+        card_key = _personal_card_key(schedule_destination)
         if legacy_text is not None:
             return (
                 await schedule_destination.send(
@@ -470,7 +475,7 @@ async def publish_dispatched(
         sent: list[int] = []
 
         publish_digest = should_publish_digest(state, envelope, local_now=local_now)
-        calendar_message_id = state.calendar_message_id
+        calendar_message_id = _card_id(state, card_key)
         # Refresh the single pinned card on every accepted snapshot. Besides schedule
         # changes, the card contains time-sensitive "Now" and "Next" states.
         calendar_message_id, calendar_changed = await _upsert_calendar(
@@ -491,6 +496,10 @@ async def publish_dispatched(
         )
         if calendar_changed:
             sent.append(calendar_message_id)
+        # Retain a newly created card even if a later notification fails. The
+        # comparison baseline still advances only after notifications succeed.
+        state = _with_card(state, card_key, calendar_message_id)
+        save_delivery_state(state_path, state)
 
         notice_changes = (
             urgent_upcoming_changes(changes, local_now=local_now)
@@ -563,11 +572,11 @@ async def publish_dispatched(
         # optional calendar output so an artifact failure cannot replay alerts.
         save_delivery_state(
             state_path,
-            ScheduleDeliveryState(
+            replace(
+                _with_card(state, card_key, calendar_message_id),
                 previous=envelope,
                 last_digest_date=local_now.date() if publish_digest else state.last_digest_date,
                 sent_reminders=sent_reminders,
-                calendar_message_id=calendar_message_id,
             ),
         )
         if calendar_path is not None:
@@ -587,7 +596,6 @@ async def publish_due_reminder(
 ) -> tuple[int, ...]:
     """Refresh the live card and send due alerts using the actual execution time."""
 
-    token = _required_secret(settings.telegram_bot_token, "TELEGRAM_BOT_TOKEN")
     chat_id = _required_int(settings.target_chat_id, "TARGET_CHAT_ID", negative=True)
     topic_id = _required_int(settings.schedule_topic_id, "SCHEDULE_TOPIC_ID", negative=False)
     now = clock()
@@ -604,14 +612,16 @@ async def publish_due_reminder(
     )
     if settings.schedule_quiet_mode:
         reminder = None
-    if reminder is None and state.calendar_message_id is None:
-        return ()
-
     own_destination = destination is None
-    schedule_destination = destination or TelegramBotApiDestination(token)
+    schedule_destination = destination or _make_destination(settings)
+    card_key = _personal_card_key(schedule_destination)
+    calendar_message_id = _card_id(state, card_key)
+    if reminder is None and calendar_message_id is None:
+        return ()
     try:
+        if own_destination:
+            await _prepare_destination(schedule_destination)
         sent: list[int] = []
-        calendar_message_id = state.calendar_message_id
         if calendar_message_id is not None:
             # Refresh time-sensitive status even when no notification is due.
             # Preserve fetched_at: a clock refresh is not a new source check.
@@ -642,17 +652,57 @@ async def publish_due_reminder(
             sent_reminders = (*sent_reminders, marker)[-100:]
         save_delivery_state(
             state_path,
-            ScheduleDeliveryState(
+            replace(
+                _with_card(state, card_key, calendar_message_id),
                 previous=state.previous,
                 last_digest_date=state.last_digest_date,
                 sent_reminders=sent_reminders,
-                calendar_message_id=calendar_message_id,
             ),
         )
         return tuple(sent)
     finally:
         if own_destination:
             await _close_source(schedule_destination)
+
+
+def _make_destination(settings: Settings) -> RichScheduleDestination:
+    if settings.schedule_sender == "user":
+        from szs_hub.personal_sender import PersonalScheduleDestination
+
+        return PersonalScheduleDestination(
+            _required_secret(settings.telegram_user_credentials, "TELEGRAM_USER_CREDENTIALS"),
+            chat_id=_required_int(settings.target_chat_id, "TARGET_CHAT_ID", negative=True),
+            topic_id=_required_int(settings.schedule_topic_id, "SCHEDULE_TOPIC_ID", negative=False),
+        )
+    return TelegramBotApiDestination(
+        _required_secret(settings.telegram_bot_token, "TELEGRAM_BOT_TOKEN")
+    )
+
+
+async def _prepare_destination(destination: RichScheduleDestination) -> None:
+    prepare = getattr(destination, "prepare", None)
+    if prepare is not None:
+        await prepare()
+
+
+def _personal_card_key(destination: RichScheduleDestination) -> str | None:
+    key = getattr(destination, "card_key", None)
+    return key if isinstance(key, str) else None
+
+
+def _card_id(state: ScheduleDeliveryState, key: str | None) -> int | None:
+    return state.calendar_message_id if key is None else dict(state.user_calendar_cards).get(key)
+
+
+def _with_card(
+    state: ScheduleDeliveryState, key: str | None, message_id: int | None,
+) -> ScheduleDeliveryState:
+    if key is None:
+        return replace(state, calendar_message_id=message_id)
+    cards = dict(state.user_calendar_cards)
+    if message_id is not None:
+        cards[key] = message_id
+    return replace(state, user_calendar_cards=tuple(sorted(cards.items())))
 
 
 async def build_schedule_envelope(

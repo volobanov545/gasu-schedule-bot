@@ -24,4 +24,10 @@ tmp/
 .vscode/
 Thumbs.db
 .DS_Store
+node_modules/
+.telegram-personal/
+*.session
+*.session-journal
+.schedule-state/
+.calendar-output/
 

@@ -1,0 +1,42 @@
+name: Check personal Telegram without sending
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: szs-schedule-state
+      queue: single
+      cancel-in-progress: false
+    env:
+      SCHEDULE_SENDER: user
+      TELEGRAM_USER_CREDENTIALS: ${{ secrets.TELEGRAM_USER_CREDENTIALS }}
+      TARGET_CHAT_ID: ${{ secrets.TARGET_CHAT_ID }}
+      SCHEDULE_TOPIC_ID: ${{ secrets.SCHEDULE_TOPIC_ID }}
+      SPBGASU_GROUP_ID: ${{ secrets.SPBGASU_GROUP_ID }}
+      FEATURE_PROFILE: schedule_only
+      TELEGRAM_MODE: outbound_only
+      AI_KILL_SWITCH: "true"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install sender dependencies
+        run: |
+          python -m pip install .
+          npm ci --prefix tools/telegram-personal --no-audit --no-fund
+      - name: Verify identity, target and pinning permission without posting
+        run: szs-hub check-personal-sender

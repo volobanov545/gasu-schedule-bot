@@ -23,6 +23,11 @@ class TelegramMode(StrEnum):
     WEBHOOK = "webhook"
 
 
+class ScheduleSender(StrEnum):
+    BOT = "bot"
+    USER = "user"
+
+
 class FeatureProfile(StrEnum):
     """Explicitly selected data-processing surface."""
 
@@ -60,6 +65,9 @@ class Settings(BaseSettings):
 
     telegram_mode: TelegramMode = TelegramMode.OUTBOUND_ONLY
     telegram_bot_token: SecretStr | None = None
+    # Explicit opt-in: adding credentials alone never switches the live sender.
+    schedule_sender: ScheduleSender = ScheduleSender.BOT
+    telegram_user_credentials: SecretStr | None = None
     telegram_webhook_url: str | None = None
     telegram_webhook_secret: SecretStr | None = None
     target_chat_id: int | None = None
@@ -131,6 +139,15 @@ class Settings(BaseSettings):
             if not self.telegram_webhook_url.startswith("https://"):
                 raise ValueError("Telegram webhook URL must use HTTPS")
 
+        if self.schedule_sender is ScheduleSender.USER:
+            if (
+                self.feature_profile is not FeatureProfile.SCHEDULE_ONLY
+                or self.telegram_mode is not TelegramMode.OUTBOUND_ONLY
+            ):
+                raise ValueError("personal schedule sender requires schedule_only/outbound_only")
+            if not self.telegram_user_credentials:
+                raise ValueError("personal schedule sender requires TELEGRAM_USER_CREDENTIALS")
+
         if self.app_env is not AppEnvironment.LOCAL:
             _require_https("spbgasu_base_url", self.spbgasu_base_url)
             if self.schedule_calendar_url is not None:
@@ -143,11 +160,12 @@ class Settings(BaseSettings):
                     "provider idempotency is implemented"
                 )
             required: dict[str, object] = {
-                "telegram_bot_token": self.telegram_bot_token,
                 "target_chat_id": self.target_chat_id,
                 "schedule_topic_id": self.schedule_topic_id,
                 "spbgasu_group_id": self.spbgasu_group_id,
             }
+            if self.schedule_sender is ScheduleSender.BOT:
+                required["telegram_bot_token"] = self.telegram_bot_token
             if self.feature_profile is FeatureProfile.FULL:
                 required.update(
                     {
