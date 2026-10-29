@@ -266,7 +266,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"Напоминание не отправлено: {type(exc).__name__}: {exc}", file=sys.stderr)
             return 1
         if message_ids:
-            print(f"Напоминание отправлено, Telegram message_id={message_ids[0]}.")
+            ids = ", ".join(str(item) for item in message_ids)
+            print(f"Telegram обновлён, message_id={ids}.")
         else:
             print("Сейчас напоминание не требуется.")
         return 0

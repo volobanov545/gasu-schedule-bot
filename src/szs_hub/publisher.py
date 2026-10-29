@@ -536,9 +536,8 @@ async def publish_dispatched(
             )
             sent_reminders = (*sent_reminders, marker)[-100:]
 
-        if calendar_path is not None:
-            _write_calendar(calendar_path, render_icalendar(envelope))
-
+        # Telegram has already accepted the work. Preserve its baseline before
+        # optional calendar output so an artifact failure cannot replay alerts.
         save_delivery_state(
             state_path,
             ScheduleDeliveryState(
@@ -548,6 +547,8 @@ async def publish_dispatched(
                 calendar_message_id=calendar_message_id,
             ),
         )
+        if calendar_path is not None:
+            _write_calendar(calendar_path, render_icalendar(envelope))
         return tuple(sent)
     finally:
         if own_destination:
